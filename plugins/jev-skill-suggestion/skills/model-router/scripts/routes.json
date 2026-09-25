@@ -1,0 +1,164 @@
+{
+  "_comment": "Model IDs are OpenRouter slugs. Check them with `node router.mjs check` (needs network access to openrouter.ai) and edit freely. Each list is tried in order; openrouter/auto is always the last fallback. Refreshed from OpenRouter's catalog on 2026-09-25; \"open\" means the weights are published (the catalog lists a Hugging Face ID). \"decider\" answers Jev's questions while no Jev key is set (ROUTER_DECIDER_MODEL overrides it); \"open\" is used with --open.",
+  "decider": {
+    "default": "openai/gpt-6-luna",
+    "open": "qwen/qwen3.8-flash"
+  },
+  "models": {
+    "anthropic/claude-haiku-4.5": {
+      "open": false
+    },
+    "anthropic/claude-opus-5.5": {
+      "open": false
+    },
+    "anthropic/claude-sonnet-5": {
+      "open": false
+    },
+    "deepseek/deepseek-v4-pro-0813": {
+      "open": true
+    },
+    "deepseek/deepseek-v4.1-flash": {
+      "open": true
+    },
+    "google/gemini-3.8-flash": {
+      "open": false
+    },
+    "minimax/minimax-m3": {
+      "open": true
+    },
+    "moonshotai/kimi-k2.7-code": {
+      "open": true
+    },
+    "moonshotai/kimi-k3": {
+      "open": true
+    },
+    "nvidia/nemotron-3.5-lightning": {
+      "open": true
+    },
+    "openai/gpt-6-luna": {
+      "open": false
+    },
+    "openai/gpt-6-sol": {
+      "open": false
+    },
+    "qwen/qwen3-coder-next": {
+      "open": true
+    },
+    "qwen/qwen3.8-2.4t-a95b": {
+      "open": true
+    },
+    "qwen/qwen3.8-flash": {
+      "open": true
+    },
+    "z-ai/glm-5.3": {
+      "open": true
+    },
+    "z-ai/glm-5.3-flash": {
+      "open": true
+    }
+  },
+  "routes": {
+    "code": {
+      "quality": [
+        "anthropic/claude-opus-5.5",
+        "openai/gpt-6-sol",
+        "moonshotai/kimi-k3"
+      ],
+      "balanced": [
+        "anthropic/claude-sonnet-5",
+        "moonshotai/kimi-k2.7-code",
+        "qwen/qwen3-coder-next"
+      ],
+      "cheap": [
+        "qwen/qwen3-coder-next",
+        "deepseek/deepseek-v4.1-flash",
+        "openai/gpt-6-luna"
+      ]
+    },
+    "reasoning": {
+      "quality": [
+        "anthropic/claude-opus-5.5",
+        "deepseek/deepseek-v4-pro-0813",
+        "qwen/qwen3.8-2.4t-a95b"
+      ],
+      "balanced": [
+        "deepseek/deepseek-v4-pro-0813",
+        "openai/gpt-6-sol",
+        "z-ai/glm-5.3"
+      ],
+      "cheap": [
+        "deepseek/deepseek-v4.1-flash",
+        "openai/gpt-6-luna",
+        "qwen/qwen3.8-flash"
+      ]
+    },
+    "long_context": {
+      "quality": [
+        "anthropic/claude-opus-5.5",
+        "moonshotai/kimi-k3",
+        "google/gemini-3.8-flash"
+      ],
+      "balanced": [
+        "google/gemini-3.8-flash",
+        "deepseek/deepseek-v4-pro-0813",
+        "z-ai/glm-5.3"
+      ],
+      "cheap": [
+        "deepseek/deepseek-v4.1-flash",
+        "z-ai/glm-5.3-flash",
+        "openai/gpt-6-luna"
+      ]
+    },
+    "writing": {
+      "quality": [
+        "anthropic/claude-opus-5.5",
+        "moonshotai/kimi-k3",
+        "openai/gpt-6-sol"
+      ],
+      "balanced": [
+        "anthropic/claude-sonnet-5",
+        "z-ai/glm-5.3",
+        "minimax/minimax-m3"
+      ],
+      "cheap": [
+        "openai/gpt-6-luna",
+        "qwen/qwen3.8-flash",
+        "deepseek/deepseek-v4.1-flash"
+      ]
+    },
+    "quick": {
+      "quality": [
+        "anthropic/claude-haiku-4.5",
+        "google/gemini-3.8-flash",
+        "qwen/qwen3.8-flash"
+      ],
+      "balanced": [
+        "openai/gpt-6-luna",
+        "qwen/qwen3.8-flash",
+        "nvidia/nemotron-3.5-lightning"
+      ],
+      "cheap": [
+        "z-ai/glm-5.3-flash",
+        "nvidia/nemotron-3.5-lightning",
+        "openai/gpt-6-luna"
+      ]
+    },
+    "general": {
+      "quality": [
+        "anthropic/claude-opus-5.5",
+        "openai/gpt-6-sol",
+        "moonshotai/kimi-k3"
+      ],
+      "balanced": [
+        "anthropic/claude-sonnet-5",
+        "deepseek/deepseek-v4-pro-0813",
+        "google/gemini-3.8-flash"
+      ],
+      "cheap": [
+        "deepseek/deepseek-v4.1-flash",
+        "openai/gpt-6-luna",
+        "qwen/qwen3.8-flash"
+      ]
+    }
+  }
+}

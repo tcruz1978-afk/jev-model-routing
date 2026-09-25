@@ -1,0 +1,285 @@
+#!/usr/bin/env node
+// Routes a prompt to a model on OpenRouter. TypeSafe's Jev decides what kind
+// of task it is and how much model it deserves; routes.json turns that into an
+// ordered list of models, sent with OpenRouter's `models` fallback so a model
+// that is down or retired is skipped. If Jev cannot answer, a small, cheap
+// OpenRouter chat model answers the same questions in its place; if that fails
+// too (or both are unsure), keyword heuristics decide.
+// Keys come from the environment (never this file). OPENROUTER_API_KEY alone is
+// enough: OpenRouter serves Jev itself on its System One API. TYPESAFE_API_KEY
+// or AI_GATEWAY_API_KEY, when set, reach Jev directly instead.
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+const API = 'https://openrouter.ai/api/v1'
+const AUTO = 'openrouter/auto'
+const TIERS = ['quality', 'balanced', 'cheap']
+const JEV_TIMEOUT_MS = 2000
+const DECIDER_TIMEOUT_MS = 5000
+// Below this confidence a pick is ignored and the heuristics decide.
+const JEV_MIN_CONFIDENCE = 0.35
+
+// What Jev chooses between.
+const CATEGORIES = {
+  code: 'Writing, reading, debugging, reviewing or explaining source code, scripts, queries or configuration.',
+  reasoning: 'Maths, logic, multi-step analysis, planning or weighing trade-offs where careful step-by-step thinking matters.',
+  writing: 'Drafting or editing prose for people: emails, posts, copy, stories, summaries in a particular voice.',
+  long_context: 'Working over a very long input: whole documents, transcripts, codebases or many files at once.',
+  quick: 'A short, simple question or small transformation a fast small model answers well.',
+  general: 'General knowledge, explanation or conversation that fits none of the other kinds.',
+}
+const TIER_CRITERIA = {
+  quality: 'Hard, high-stakes or subtle: worth the strongest and most expensive model.',
+  balanced: 'Ordinary difficulty: a capable mid-priced model does it well.',
+  cheap: 'Easy or routine: the cheapest adequate model is fine.',
+}
+
+export const config = JSON.parse(readFileSync(new URL('./routes.json', import.meta.url), 'utf8'))
+
+// Cheap keyword heuristics; first match wins, so the order matters.
+const RULES = [
+  ['code', /```|\b(code|function|bug|debug|refactor|typescript|javascript|python|swift|sql|regex|compile|stack ?trace|unit test|api endpoint)\b/i],
+  ['reasoning', /\b(prove|proof|math|calculate|solve|equation|step[- ]by[- ]step|logic|puzzle|analy[sz]e|trade-?offs?|plan)\b/i],
+  ['writing', /\b(write|draft|rewrite|essay|story|poem|blog|email|copy|tagline|tone|caption|script)\b/i],
+]
+
+export function classify(prompt) {
+  if (prompt.length > 40000) return 'long_context'
+  for (const [category, pattern] of RULES) if (pattern.test(prompt)) return category
+  if (prompt.length < 200) return 'quick'
+  return 'general'
+}
+
+/** Picks the category and the ordered model list, without calling anything. */
+export function route(prompt, { model, prefer = 'balanced', open = false, category } = {}) {
+  if (!TIERS.includes(prefer)) throw new Error(`prefer must be one of ${TIERS.join(', ')}`)
+  const picked = category ?? classify(prompt)
+  if (model) return { category: picked, models: [model], reason: 'model named explicitly' }
+  if (!config.routes[picked]) throw new Error(`unknown category "${picked}"`)
+  let models = config.routes[picked][prefer]
+  if (open) {
+    models = models.filter((id) => config.models[id]?.open)
+    // Top up from any open model in the category so the list is never empty.
+    for (const tier of TIERS) for (const id of config.routes[picked][tier])
+      if (config.models[id]?.open && !models.includes(id)) models.push(id)
+    models = models.slice(0, 3)
+    if (models.length === 0) throw new Error(`no open models configured for "${picked}"`)
+  } else {
+    models = [...models.slice(0, 3), AUTO]
+  }
+  return { category: picked, models, reason: `${picked} / ${prefer}${open ? ' / open models only' : ''}` }
+}
+
+function jevBackend(env = process.env) {
+  if (env.TYPESAFE_API_KEY) {
+    const base = (env.TYPESAFE_BASE_URL || 'https://api.typesafe.ai').replace(/\/+$/, '')
+    return { kind: 'typesafe', key: env.TYPESAFE_API_KEY, url: `${base}/v1/systemone` }
+  }
+  if (env.AI_GATEWAY_API_KEY) return { kind: 'gateway', key: env.AI_GATEWAY_API_KEY, url: 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model' }
+  // OpenRouter's System One API takes TypeSafe's request shape unchanged.
+  if (env.OPENROUTER_API_KEY) return { kind: 'openrouter', key: env.OPENROUTER_API_KEY, url: `${API.replace(/\/v1$/, '')}/v1/systemone` }
+  return null
+}
+
+/**
+ * Asks Jev which category the prompt is and, unless `prefer` is fixed, which
+ * tier it deserves. Returns null when no key is set, or on error or timeout.
+ */
+export async function askJev(prompt, { prefer, env = process.env, fetchImpl = fetch, timeoutMs = JEV_TIMEOUT_MS } = {}) {
+  const backend = jevBackend(env)
+  if (!backend) return null
+  const questions = {
+    category: { type: 'choice', instructions: 'What kind of task is the user asking for?', criteria: CATEGORIES },
+  }
+  if (!prefer) {
+    questions.tier = {
+      type: 'choice',
+      instructions: 'How capable a model does this request need to be answered well?',
+      criteria: TIER_CRITERIA,
+    }
+  }
+  const state = { request: prompt.slice(0, 8000), recent_context: '' }
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${backend.key}` }
+  let body
+  if (backend.kind !== 'gateway') body = { model: 'jev-latest', state, questions }
+  else {
+    body = { state, questions }
+    Object.assign(headers, {
+      'ai-gateway-auth-method': 'api-key',
+      'ai-model-id': 'typesafe-ai/jev',
+      'ai-evaluation-model-specification-version': '4',
+    })
+  }
+  try {
+    const response = await fetchImpl(backend.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!response.ok) return null
+    const answers = (await response.json()).answers ?? {}
+    const pick = (answer, allowed) => {
+      if (!answer || !(answer.choice in allowed)) return null
+      const confidence = typeof answer.confidence === 'number' ? answer.confidence : answer.probabilities?.[answer.choice] ?? null
+      return confidence === null || confidence >= JEV_MIN_CONFIDENCE ? { choice: answer.choice, confidence } : null
+    }
+    return { backend: backend.kind, category: pick(answers.category, CATEGORIES), tier: pick(answers.tier, TIER_CRITERIA) }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Jev's stand-in when Jev cannot answer: a small OpenRouter chat model
+ * answers the same two questions as JSON. `--open` uses an open-weight one.
+ * Returns null without an OpenRouter key, or on error, timeout or bad JSON.
+ */
+export async function askDecider(prompt, { prefer, open, env = process.env, fetchImpl = fetch, timeoutMs = DECIDER_TIMEOUT_MS } = {}) {
+  const key = env.OPENROUTER_API_KEY
+  if (!key) return null
+  const model = env.ROUTER_DECIDER_MODEL || (open ? config.decider.open : config.decider.default)
+  const list = (criteria) => Object.entries(criteria).map(([name, text]) => `- ${name}: ${text}`).join('\n')
+  const system = [
+    'You route requests to AI models. Classify the user request; do not answer it.',
+    `Categories:\n${list(CATEGORIES)}`,
+    prefer ? null : `Tiers:\n${list(TIER_CRITERIA)}`,
+    `Reply with JSON only: {"category": "<category>",${prefer ? '' : ' "tier": "<tier>",'} "confidence": <0 to 1>}`,
+  ].filter(Boolean).join('\n\n')
+  try {
+    const response = await fetchImpl(`${API}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'tc-ventures model-router' },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        max_tokens: 80,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: prompt.slice(0, 8000) },
+        ],
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!response.ok) return null
+    const text = (await response.json()).choices?.[0]?.message?.content ?? ''
+    const answer = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? 'null')
+    if (!answer) return null
+    const confidence = typeof answer.confidence === 'number' ? answer.confidence : null
+    if (confidence !== null && confidence < JEV_MIN_CONFIDENCE) return null
+    const pick = (choice, allowed) => (choice in allowed ? { choice, confidence } : null)
+    return {
+      backend: `stand-in ${model}`,
+      category: pick(String(answer.category), CATEGORIES),
+      tier: prefer ? null : pick(String(answer.tier), TIER_CRITERIA),
+    }
+  } catch {
+    return null
+  }
+}
+
+/** Decides the route: Jev, else its stand-in, else heuristics for what is left. */
+export async function plan(prompt, options = {}) {
+  if (options.model) return route(prompt, options)
+  let jev = null
+  if (options.jev !== false) {
+    jev = await askJev(prompt, options)
+    if (!jev?.category && !jev?.tier) jev = (await askDecider(prompt, options)) ?? jev
+  }
+  const category = options.category ?? jev?.category?.choice
+  const prefer = options.prefer ?? jev?.tier?.choice ?? 'balanced'
+  const result = route(prompt, { ...options, category, prefer })
+  const decidedBy = jev?.category || jev?.tier ? (jev.backend.startsWith('stand-in') ? jev.backend : `Jev (${jev.backend})`) : 'heuristics'
+  return { ...result, reason: `${result.reason} · decided by ${decidedBy}`, jev }
+}
+
+function apiKey() {
+  const key = process.env.OPENROUTER_API_KEY
+  if (!key) throw new Error('OPENROUTER_API_KEY is not set')
+  return key
+}
+
+/** Routes and sends one prompt; returns the answer and the model that served it. */
+export async function complete(prompt, options = {}) {
+  const decision = await plan(prompt, options)
+  const [first, ...fallbacks] = decision.models
+  const response = await fetch(`${API}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey()}`,
+      'Content-Type': 'application/json',
+      'X-Title': 'tc-ventures model-router',
+    },
+    body: JSON.stringify({
+      model: first,
+      ...(fallbacks.length ? { models: decision.models } : {}),
+      messages: [...(options.system ? [{ role: 'system', content: options.system }] : []), { role: 'user', content: prompt }],
+    }),
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${body.error?.message ?? JSON.stringify(body)}`)
+  return { ...decision, model: body.model, text: body.choices?.[0]?.message?.content ?? '', usage: body.usage }
+}
+
+/** OpenRouter's live model catalog (public; no key needed). */
+export async function listModels() {
+  const response = await fetch(`${API}/models`)
+  if (!response.ok) throw new Error(`OpenRouter ${response.status} listing models`)
+  return (await response.json()).data
+}
+
+const USAGE = `Usage:
+  node router.mjs "prompt" [--prefer quality|balanced|cheap] [--open] [--model <id>]
+                           [--category <name>] [--system "..."] [--no-jev] [--dry-run] [--json]
+  node router.mjs check           verify every model in routes.json still exists
+  node router.mjs models [text]   list OpenRouter's models, optionally filtered`
+
+function parse(argv) {
+  const opts = { _: [] }
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '--open') opts.open = true
+    else if (a === '--dry-run') opts.dryRun = true
+    else if (a === '--no-jev') opts.jev = false
+    else if (a === '--json') opts.json = true
+    else if (['--prefer', '--model', '--category', '--system'].includes(a)) opts[a.slice(2)] = argv[++i]
+    else if (a === '-h' || a === '--help') opts.help = true
+    else opts._.push(a)
+  }
+  return opts
+}
+
+async function main(argv) {
+  const opts = parse(argv)
+  const [first, ...rest] = opts._
+  if (opts.help || !first) return console.log(USAGE)
+  if (first === 'check') {
+    const live = new Set((await listModels()).map((m) => m.id))
+    const missing = Object.keys(config.models).filter((id) => !live.has(id))
+    console.log(missing.length ? `Not on OpenRouter any more:\n  ${missing.join('\n  ')}` : 'All configured models exist.')
+    process.exitCode = missing.length ? 1 : 0
+    return
+  }
+  if (first === 'models') {
+    const filter = rest.join(' ').toLowerCase()
+    for (const m of await listModels())
+      if (!filter || m.id.toLowerCase().includes(filter)) console.log(`${m.id}\t${m.context_length ?? ''}`)
+    return
+  }
+  const prompt = opts._.join(' ')
+  if (opts.dryRun) {
+    const decision = await plan(prompt, opts)
+    return console.log(opts.json ? JSON.stringify(decision, null, 2) : `${decision.reason}\n→ ${decision.models.join(' → ')}`)
+  }
+  const result = await complete(prompt, opts)
+  if (opts.json) console.log(JSON.stringify(result, null, 2))
+  else console.log(`${result.text}\n\n[${result.model} · ${result.reason}]`)
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main(process.argv.slice(2)).catch((error) => {
+    console.error(error.message)
+    process.exitCode = 1
+  })
+}

@@ -1,0 +1,16 @@
+{
+  "name": "jev-model-routing",
+  "owner": {
+    "name": "tcruz1978-afk"
+  },
+  "metadata": {
+    "description": "Jev, TypeSafe's decision model, served through OpenRouter: it picks the right skill for each prompt and the right model for each task."
+  },
+  "plugins": [
+    {
+      "name": "jev-skill-suggestion",
+      "source": "./plugins/jev-skill-suggestion",
+      "description": "Jev picks at most one skill per prompt (via OpenRouter, with an OpenRouter chat model as backup) and a model-router skill sends prompts to the best OpenRouter model."
+    }
+  ]
+}
