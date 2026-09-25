@@ -22,8 +22,9 @@ const DECIDER_TIMEOUT_MS = 5000
 const JEV_MIN_CONFIDENCE = 0.35
 // Output cap sent with every completion. Without one, OpenRouter reserves the
 // model's whole output limit (often 128k tokens) against the key's credit limit
-// and refuses the request up front when that doesn't fit.
-export const DEFAULT_MAX_TOKENS = 4096
+// and refuses the request up front when that doesn't fit. 1000 leaves room for
+// reasoning models, which spend a few hundred tokens thinking before they answer.
+export const DEFAULT_MAX_TOKENS = 1000
 
 // What Jev chooses between.
 const CATEGORIES = {
@@ -274,6 +275,8 @@ export async function complete(prompt, options = {}) {
     fallbackFrom: fellBack(first, body.model) ? first : null,
     outOfCredit,
     text: body.choices?.[0]?.message?.content ?? '',
+    // The model hit max_tokens: the answer is cut short, or empty if thinking used it all.
+    truncated: body.choices?.[0]?.finish_reason === 'length',
     usage: body.usage,
   }
 }
@@ -339,6 +342,8 @@ async function main(argv) {
       console.error('note: the OpenRouter key is out of credit; answered by a free model (rate-limited: 20/min, 50/day)')
     if (result.fallbackFrom)
       console.error(`note: ${result.fallbackFrom} did not answer (down, refused, or over the key's credit limit); served by a fallback`)
+    if (result.truncated)
+      console.error(`note: the answer hit the ${opts.maxTokens ?? DEFAULT_MAX_TOKENS}-token cap and was cut short; raise it with --max-tokens`)
   }
 }
 

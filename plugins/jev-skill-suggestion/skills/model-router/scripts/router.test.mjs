@@ -255,3 +255,10 @@ test('a named model is never swapped for a free one', async () => {
   const { fetchImpl } = outOfCredit()
   await assert.rejects(complete('hi', { env: OR, fetchImpl, model: 'openai/gpt-6-sol' }), /402/)
 })
+
+test('complete flags an answer cut short by max_tokens', async () => {
+  const finished = (finish_reason) => async () => ({ ok: true, json: async () => ({ model: 'x/y', choices: [{ message: { content: 'Hello there, my' }, finish_reason }] }) })
+  const opts = { env: OR, jev: false, category: 'quick', prefer: 'cheap' }
+  assert.equal((await complete('hi', { ...opts, fetchImpl: finished('length') })).truncated, true)
+  assert.equal((await complete('hi', { ...opts, fetchImpl: finished('stop') })).truncated, false)
+})
