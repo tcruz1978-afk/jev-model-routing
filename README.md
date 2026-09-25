@@ -99,6 +99,17 @@ doesn't answer, the prompt and skill list go to the backup model. The model
 router sends your prompt to the models it picks. Everything goes through
 OpenRouter unless you configure another backend. Nothing is sent without a key.
 
+## Checking that Jev picks skills
+
+`evals/skill-selection/run.sh [project dir]` sends each prompt in
+`evals/skill-selection/cases.tsv` to a headless Claude Code with the plugin
+loaded and Claude's own Skill tool turned off, then reads the plugin's decision
+log. A case passes only if the right skill was attached **and** the log shows
+Jev made the decision, not the backup model or the built-in classifier.
+Expected answers are per project: the shipped cases assume the tc-ventures
+skills (`motion-design`, `champion-blueprint`, synced `xlsx`/`pptx`), so edit
+`cases.tsv` for yours. Each case costs one short Haiku call plus ~$0.00001 of Jev.
+
 ## Tests
 
 ```sh
