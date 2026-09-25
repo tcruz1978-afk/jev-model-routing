@@ -12,19 +12,35 @@ decision model, in charge of two choices, using one OpenRouter API key:
   it needs, and OpenRouter runs it. There are cheap, balanced and quality tiers,
   and an open-weight-only mode.
 
-## Before you start
+## Start here if you're new
 
-You need three things. Jev runs through OpenRouter, so one OpenRouter key covers everything.
+Find the line that describes you, and follow only that path. You need **Claude Code** (on
+the web at [claude.ai/code](https://claude.ai/code), or on your computer, version 2.1.278 or
+newer); this doesn't work in regular Claude app chats.
 
-1. **Claude Code** 2.1.278 or newer, on the web (claude.ai/code) or on your computer.
-2. **An OpenRouter API key.** Sign up at [openrouter.ai](https://openrouter.ai), then go to
-   **Settings → Keys → Create key**. Keep the key (`sk-or-v1-…`) private and never paste it
-   into a chat.
-3. **Some OpenRouter credit.** Add at least **$10** under **Settings → Credits**. A Jev
-   decision costs about $0.00001, and $10 of lifetime credit also raises the free-model
-   allowance from 50 to 1,000 requests a day.
+**A. "My team already set it up for me."** Your admin made a shared cloud environment.
+1. Open [claude.ai/code](https://claude.ai/code) and start a new session.
+2. In the environment picker, choose the one your admin named (it's often already the default).
+3. Skip to [Check it works](#check-it-works). You don't need an account or a key.
 
-This works in Claude Code only. Regular Claude app chats don't run plugins.
+**B. "Someone gave me an OpenRouter key."** A teammate or admin sent you a key that starts
+with `sk-or-v1-`.
+1. Keep it private: store it in a password manager and don't paste it into chats.
+2. You don't need your own OpenRouter account or credit; the key draws on theirs.
+3. Follow [Setup: Claude Code on the web](#setup-claude-code-on-the-web) or
+   [Setup: Claude Code on your computer](#setup-claude-code-on-your-computer), using that
+   key wherever the steps say "your key".
+4. Finish with [Check it works](#check-it-works).
+
+**C. "I'm setting this up on my own."**
+1. Create an account at [openrouter.ai](https://openrouter.ai).
+2. Add credit under **Settings → Credits**. **$10** is plenty: a Jev decision costs about
+   $0.00001, and $10 of lifetime credit raises the free-model allowance from 50 to 1,000
+   requests a day.
+3. Create a key under **Settings → Keys → Create key** and store it somewhere private.
+4. Follow one of the setup sections below, then [Check it works](#check-it-works).
+
+Setting it up for other people? See [Sharing with a team](#sharing-with-a-team).
 
 ## Sharing with a team
 
