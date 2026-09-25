@@ -12,38 +12,92 @@ decision model, in charge of two choices, using one OpenRouter API key:
   it needs, and OpenRouter runs it. There are cheap, balanced and quality tiers,
   and an open-weight-only mode.
 
-## Install
+## Before you start
 
-1. **Claude Code 2.1.278 or newer**, started with function hooks on:
-   ```sh
+You need three things. Jev runs through OpenRouter, so one OpenRouter key covers everything.
+
+1. **Claude Code** 2.1.278 or newer, on the web (claude.ai/code) or on your computer.
+2. **An OpenRouter API key.** Sign up at [openrouter.ai](https://openrouter.ai), then go to
+   **Settings → Keys → Create key**. Keep the key (`sk-or-v1-…`) private and never paste it
+   into a chat.
+3. **Some OpenRouter credit.** Add at least **$10** under **Settings → Credits**. A Jev
+   decision costs about $0.00001, and $10 of lifetime credit also raises the free-model
+   allowance from 50 to 1,000 requests a day.
+
+This works in Claude Code only. Regular Claude app chats don't run plugins.
+
+## Setup: Claude Code on the web
+
+Set it up once on a cloud environment; every new session in that environment gets it.
+These steps store the key as an **API credential**, so no session ever sees it. API
+credentials are available on Pro and Max plans.
+
+1. Open [claude.ai/code](https://claude.ai/code). Click the **cloud environment menu** in a
+   session's title bar, hover your environment and click its **settings icon**. API
+   credentials only appear when editing an environment that already exists.
+2. **Network access:** choose **Custom** and add `openrouter.ai`, or choose **Full**.
+3. **Setup script:** replace the contents with:
+   ```bash
+   git clone --depth 1 https://github.com/tcruz1978-afk/jev-model-routing /root/.claude/jev-model-routing || true
+   ```
+4. **Environment variables:** add these four lines exactly, with no spaces around `=` and no
+   quotes. Don't put your key here.
+   ```
+   OPENROUTER_AUTH=proxy
+   CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1
+   NODE_USE_ENV_PROXY=1
+   CLAUDE_CODE_PLUGIN_DIRS=/root/.claude/jev-model-routing/plugins/jev-skill-suggestion
+   ```
+5. Click **Save changes**.
+6. **API credentials:** click **Add credential** and fill in:
+   - Credential type: **Bearer** (the default)
+   - Name: `OpenRouter`
+   - Allowed websites: `openrouter.ai`
+   - Custom headers: leave Name `Authorization` and Prefix `Bearer`; paste your key as the **Value**
+7. Click **Connect**.
+8. **Start a new session.** Sessions that were already open don't pick up the changes.
+
+No API credentials section (Team or Enterprise plans)? Use `OPENROUTER_API_KEY=sk-or-v1-…`
+in step 4 instead of `OPENROUTER_AUTH=proxy`, and skip steps 6–7. Anyone who can use the
+environment can read that value.
+
+## Setup: Claude Code on your computer
+
+1. Check `claude --version` is **2.1.278 or newer**.
+2. Add two lines to your shell profile (`~/.zshrc` or `~/.bashrc`; on Windows, user
+   environment variables), then open a new terminal:
+   ```bash
    export CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1
+   export OPENROUTER_API_KEY=sk-or-v1-your-key-here
    ```
-2. **Your OpenRouter key** in the environment. Create one at
-   https://openrouter.ai/settings/keys, and never commit it:
-   ```sh
-   export OPENROUTER_API_KEY=sk-or-v1-...
-   ```
-3. **Add the marketplace and install** from inside Claude Code:
+3. Start `claude` and run:
    ```
    /plugin marketplace add tcruz1978-afk/jev-model-routing
    /plugin install jev-skill-suggestion@jev-model-routing
    ```
-   The install notes that the options aren't set yet. They're all optional,
-   and `OPENROUTER_API_KEY` alone is enough.
-4. **Restart Claude Code.** The first prompt logs
-   `[jev-skill-suggestion] ready on typesafe (https://openrouter.ai/api/v1/systemone)`.
-5. **Optional:** run `/jev-skill-suggestion:setup` to hide your skills from
-   Claude's listing (`/context` then counts them at 0). Jev keeps loading the
-   one each prompt needs, and `/jev-skill-suggestion:setup restore` undoes it.
+   The install says its options aren't set yet. They're all optional; the key from step 2
+   is enough.
+4. **Quit Claude Code and start it again.**
+5. Optional: run `/jev-skill-suggestion:setup` to take your skills out of Claude's
+   always-loaded list, so only Jev's pick is loaded. It asks before changing anything, and
+   `/jev-skill-suggestion:setup restore` undoes it.
 
-### Claude Code on the web
+## Check it works
 
-Set these in the cloud environment's settings, not in chat:
+One prompt tests everything: Jev has to pick the plugin's own model-router skill, and the
+router has to get a live answer through OpenRouter.
 
-- The OpenRouter key. On Pro/Max, the most secure option is an **API credential**: name it `OpenRouter`, allowed website `openrouter.ai`, header `Authorization` with prefix `Bearer`. Then set `OPENROUTER_AUTH=proxy`, and sessions never see the key. Otherwise set `OPENROUTER_API_KEY`.
-- `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`
-- `NODE_USE_ENV_PROXY=1`, so the model router's Node `fetch` uses the proxy
-- Network access: allow `openrouter.ai`
+1. In a **new** session, type this yourself. The skill picker skips messages sent by
+   automation or another session, by design.
+   ```
+   Send this prompt to the cheapest open-source model and show me its answer: say hello in five words
+   ```
+2. Approve the command if Claude Code asks.
+3. It works if you get a short greeting, the name of the model that answered, and
+   `decided by Jev (openrouter)`.
+
+Day to day, nothing changes: ask for a spreadsheet, an animation or a deck, and Jev
+attaches the matching skill. Plain questions get no skill, on purpose.
 
 ## Using the model router
 
@@ -72,6 +126,22 @@ once you've bought $10 of credit).
 | 1 | Jev (OpenRouter, or TypeSafe / Vercel AI Gateway if you set their keys) | Jev (same) |
 | 2 | OpenRouter chat model (`openai/gpt-6-luna` by default) | OpenRouter chat model (`gpt-6-luna`, or `qwen3.8-flash` with `--open`) |
 | 3 | Claude Code's built-in classifier | Keyword rules |
+
+## Troubleshooting
+
+Most problems are a setting that didn't reach the session. Start a fresh session after
+every settings change.
+
+| What you see | What it means | Fix |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY is not set` | No key, and no `OPENROUTER_AUTH=proxy` | Web: add `OPENROUTER_AUTH=proxy`. Computer: add the `export` line and open a new terminal |
+| `401: Missing Authentication header` | The key variable exists but is empty | Re-check the line: no spaces, no quotes, nothing after the key |
+| `401: No cookie auth credentials found` | No key reached OpenRouter | Web: the credential's allowed website must be exactly `openrouter.ai`, header `Authorization`, prefix `Bearer`. Sessions opened before you added it won't have it |
+| `402`, or an "out of credit" note | No credit, or the key's spending limit is reached | Add credit or raise the key's limit at openrouter.ai; free models keep working meanwhile |
+| `403` from OpenRouter, or timeouts | The network blocks `openrouter.ai` | Web: allow it under Network access, and keep `NODE_USE_ENV_PROXY=1` |
+| "router.mjs not found" | The setup script didn't download the plugin | Web: check the setup script line and start a new session |
+| No skill attached | Nothing fits (by design), or the plugin didn't load | Try the check prompt. If model-router isn't picked, check `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and restart |
+| Works in new sessions, not an old one | Plugins load when a session starts | Use a new session |
 
 ## Options
 
