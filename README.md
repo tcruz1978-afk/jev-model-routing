@@ -26,6 +26,28 @@ You need three things. Jev runs through OpenRouter, so one OpenRouter key covers
 
 This works in Claude Code only. Regular Claude app chats don't run plugins.
 
+## Sharing with a team
+
+Only one person needs an OpenRouter account. Everyone else just needs a key from it.
+
+1. The account owner adds credit once, then creates **one key per person** under
+   **Settings → Keys**, naming each after its user.
+2. Give each key a **credit limit** when creating it, so no one can spend more than their share.
+3. Send each person their own key privately (a password manager, not chat or email). They
+   follow the setup steps below with that key.
+4. When someone leaves, or a key leaks, **delete that key**. Nobody else is affected.
+
+Don't give everyone the same key: you couldn't see who spent what, and one leak would
+mean replacing it for everybody.
+
+On a Team or Enterprise plan, an Owner can instead put one key in a **shared cloud
+environment** (Admin settings → Cloud environments) and make it the default, so members
+set up nothing. Members can read the variable there, so give that environment a key with
+its own credit limit.
+
+No key at all? The plugin still installs and picks skills using Claude Code's built-in
+picker instead of Jev, but the model router can't answer.
+
 ## Setup: Claude Code on the web
 
 Set it up once on a cloud environment; every new session in that environment gets it.
