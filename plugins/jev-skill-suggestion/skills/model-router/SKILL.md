@@ -15,7 +15,8 @@ answered, so pass that on to the user.
 
 ## Requirements
 
-- `OPENROUTER_API_KEY` in the environment. Never ask the user to paste a key
+- `OPENROUTER_API_KEY` in the environment, or `OPENROUTER_AUTH=proxy` when the
+  cloud environment's agent proxy adds the key (an API credential for `openrouter.ai`). Never ask the user to paste a key
   into the chat; if it's missing, tell them to set it where their environment
   variables live.
 - Node 18+. Behind an HTTPS proxy (Claude Code on the web), prefix commands with

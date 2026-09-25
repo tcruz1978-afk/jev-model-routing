@@ -47,6 +47,8 @@ import {
   fallbackEndpoint,
   readFallback,
   isOpenRouterUrl,
+  PROXY_INJECTED,
+  authHeader,
 } from '../hooks/policy.ts'
 import type { Candidate, PolicyConfig, Skill } from '../hooks/policy.ts'
 
@@ -496,4 +498,13 @@ test('the OpenRouter key only goes to openrouter.ai', () => {
   expect(isOpenRouterUrl('https://openrouter.ai.evil.example')).toBe(false)
   expect(isOpenRouterUrl('http://openrouter.ai/api')).toBe(false)
   expect(isOpenRouterUrl('not a url')).toBe(false)
+})
+
+test('proxy-injected key: requests carry no Authorization header of their own', () => {
+  expect(authHeader('sk-or-x')).toEqual({ authorization: 'Bearer sk-or-x' })
+  expect(authHeader(PROXY_INJECTED)).toEqual({})
+  const headers = requestHeaders('typesafe', PROXY_INJECTED, 'jev-latest')
+  expect(headers.authorization).toBeUndefined()
+  expect(headers['content-type']).toBe('application/json')
+  expect(requestHeaders('typesafe', 'sk-or-x', 'jev-latest').authorization).toBe('Bearer sk-or-x')
 })

@@ -76,6 +76,18 @@ export const DEFAULT_BASE_URL: Record<Provider, string> = {
 /** OpenRouter's System One API, which serves Jev with TypeSafe's request shape. */
 export const OPENROUTER_SYSTEM_ONE_BASE_URL = 'https://openrouter.ai/api'
 
+/**
+ * Stands in for the OpenRouter key when the cloud environment's agent proxy
+ * adds it (an "API credential" for openrouter.ai, OPENROUTER_AUTH=proxy):
+ * requests then go out with no Authorization header of their own.
+ */
+export const PROXY_INJECTED = 'proxy-injected'
+
+/** The Authorization header for a key, or none when the proxy adds it. */
+export function authHeader(apiKey: string): Record<string, string> {
+  return apiKey === PROXY_INJECTED ? {} : { authorization: `Bearer ${apiKey}` }
+}
+
 /** Whether a URL is on openrouter.ai: the only host the OpenRouter key is sent to. */
 export function isOpenRouterUrl(url: string): boolean {
   try {
@@ -472,7 +484,7 @@ export function requestBody(
 
 /** The request headers. */
 export function requestHeaders(provider: Provider, apiKey: string, model: string): Record<string, string> {
-  const common = { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }
+  const common = { 'content-type': 'application/json', ...authHeader(apiKey) }
   if (provider === 'typesafe') return common
   return {
     ...common,

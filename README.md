@@ -40,7 +40,7 @@ decision model, in charge of two choices, using one OpenRouter API key:
 
 Set these in the cloud environment's settings, not in chat:
 
-- `OPENROUTER_API_KEY`
+- The OpenRouter key. On Pro/Max, the most secure option is an **API credential**: name it `OpenRouter`, allowed website `openrouter.ai`, header `Authorization` with prefix `Bearer`. Then set `OPENROUTER_AUTH=proxy`, and sessions never see the key. Otherwise set `OPENROUTER_API_KEY`.
 - `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`
 - `NODE_USE_ENV_PROXY=1`, so the model router's Node `fetch` uses the proxy
 - Network access: allow `openrouter.ai`

@@ -118,6 +118,8 @@ import {
   DEFAULT_FALLBACK,
   OPENROUTER_SYSTEM_ONE_BASE_URL,
   isOpenRouterUrl,
+  PROXY_INJECTED,
+  authHeader,
   fallbackBody,
   fallbackEndpoint,
   readFallback,
@@ -188,7 +190,10 @@ export const register: Register = (on, options) => {
 
   /** Applies OPENROUTER_API_KEY, read once, to whatever the options left unset. */
   let resolved = false
-  const resolve = (openrouterKey: string) => {
+  const resolve = (envKey: string, auth: string) => {
+    // With OPENROUTER_AUTH=proxy and no key in the environment, the agent
+    // proxy adds the key to requests for openrouter.ai.
+    const openrouterKey = envKey || (auth === 'proxy' ? PROXY_INJECTED : '')
     resolved = true
     // The OpenRouter key only ever goes to OpenRouter: a typesafeBaseUrl or
     // fallbackBaseUrl pointing elsewhere keeps it out.
@@ -253,7 +258,7 @@ export const register: Register = (on, options) => {
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
     if (!resolved) {
       resolved = true
-      resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '')
+      resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '', (await $.env.get('OPENROUTER_AUTH')) ?? '')
     }
     if (!announced) {
       announced = true
@@ -294,7 +299,7 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     if (!resolved) {
       resolved = true
-      resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '')
+      resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '', (await $.env.get('OPENROUTER_AUTH')) ?? '')
     }
     if (!announced) {
       announced = true
@@ -431,7 +436,7 @@ export const register: Register = (on, options) => {
         const response = await Promise.race([
           $.http.fetch(fallbackUrl, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', authorization: `Bearer ${fallbackKey}` },
+            headers: { 'content-type': 'application/json', ...authHeader(fallbackKey) },
             body: fallbackBody(e.text, skills, fallbackModel),
           }),
           $.clock.sleep(Math.max(timeoutMs, 3000)),

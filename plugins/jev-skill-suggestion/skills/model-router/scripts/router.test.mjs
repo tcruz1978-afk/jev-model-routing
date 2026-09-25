@@ -107,7 +107,7 @@ test('an OpenRouter key alone reaches Jev through OpenRouter', async () => {
   assert.equal(calls.length, 1)
   assert.equal(calls[0].url, 'https://openrouter.ai/api/v1/systemone')
   assert.equal(calls[0].body.model, 'jev-latest')
-  assert.equal(calls[0].headers.authorization, 'Bearer o')
+  assert.equal(calls[0].headers.authorization ?? calls[0].headers.Authorization, 'Bearer o')
 })
 
 test('when Jev fails an OpenRouter chat model stands in', async () => {
@@ -154,4 +154,20 @@ test('no route ever sends OpenRouter more than 3 models', () => {
     for (const prefer of ['quality', 'balanced', 'cheap'])
       for (const open of [false, true])
         assert.ok(route('x', { category, prefer, open }).models.length <= 3, `${category}/${prefer}/${open}`)
+})
+
+test('OPENROUTER_AUTH=proxy: Jev and the stand-in go out with no Authorization header', async () => {
+  const { calls, fetchImpl } = openRouter({ chat: '{"category":"reasoning","tier":"cheap","confidence":0.9}' })
+  const decision = await plan('fix this python bug', { env: { OPENROUTER_AUTH: 'proxy' }, fetchImpl })
+  assert.equal(decision.category, 'reasoning')
+  assert.deepEqual(calls.map((c) => c.url), ['https://openrouter.ai/api/v1/systemone', 'https://openrouter.ai/api/v1/chat/completions'])
+  for (const c of calls) {
+    assert.equal(c.headers.authorization, undefined)
+    assert.equal(c.headers.Authorization, undefined)
+  }
+})
+
+test('neither a key nor proxy mode: no OpenRouter calls', async () => {
+  const decision = await plan('fix this python bug', { env: { OPENROUTER_AUTH: 'nope' }, fetchImpl: () => assert.fail('no call expected') })
+  assert.match(decision.reason, /heuristics/)
 })

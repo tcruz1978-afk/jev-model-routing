@@ -73,6 +73,13 @@ export function route(prompt, { model, prefer = 'balanced', open = false, catego
   return { category: picked, models, reason: `${picked} / ${prefer}${open ? ' / open models only' : ''}` }
 }
 
+/** OpenRouter's Authorization header, empty when the agent proxy adds the key; null when there is no key at all. */
+function openRouterAuth(env = process.env) {
+  if (env.OPENROUTER_API_KEY) return { Authorization: `Bearer ${env.OPENROUTER_API_KEY}` }
+  if (env.OPENROUTER_AUTH === 'proxy') return {}
+  return null
+}
+
 function jevBackend(env = process.env) {
   if (env.TYPESAFE_API_KEY) {
     const base = (env.TYPESAFE_BASE_URL || 'https://api.typesafe.ai').replace(/\/+$/, '')
@@ -80,7 +87,7 @@ function jevBackend(env = process.env) {
   }
   if (env.AI_GATEWAY_API_KEY) return { kind: 'gateway', key: env.AI_GATEWAY_API_KEY, url: 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model' }
   // OpenRouter's System One API takes TypeSafe's request shape unchanged.
-  if (env.OPENROUTER_API_KEY) return { kind: 'openrouter', key: env.OPENROUTER_API_KEY, url: `${API.replace(/\/v1$/, '')}/v1/systemone` }
+  if (openRouterAuth(env)) return { kind: 'openrouter', auth: openRouterAuth(env), url: `${API.replace(/\/v1$/, '')}/v1/systemone` }
   return null
 }
 
@@ -102,7 +109,7 @@ export async function askJev(prompt, { prefer, env = process.env, fetchImpl = fe
     }
   }
   const state = { request: prompt.slice(0, 8000), recent_context: '' }
-  const headers = { 'content-type': 'application/json', authorization: `Bearer ${backend.key}` }
+  const headers = { 'content-type': 'application/json', ...(backend.auth ?? { authorization: `Bearer ${backend.key}` }) }
   let body
   if (backend.kind !== 'gateway') body = { model: 'jev-latest', state, questions }
   else {
@@ -139,8 +146,8 @@ export async function askJev(prompt, { prefer, env = process.env, fetchImpl = fe
  * Returns null without an OpenRouter key, or on error, timeout or bad JSON.
  */
 export async function askDecider(prompt, { prefer, open, env = process.env, fetchImpl = fetch, timeoutMs = DECIDER_TIMEOUT_MS } = {}) {
-  const key = env.OPENROUTER_API_KEY
-  if (!key) return null
+  const auth = openRouterAuth(env)
+  if (!auth) return null
   const model = env.ROUTER_DECIDER_MODEL || (open ? config.decider.open : config.decider.default)
   const list = (criteria) => Object.entries(criteria).map(([name, text]) => `- ${name}: ${text}`).join('\n')
   const system = [
@@ -152,7 +159,7 @@ export async function askDecider(prompt, { prefer, open, env = process.env, fetc
   try {
     const response = await fetchImpl(`${API}/chat/completions`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-Title': 'tc-ventures model-router' },
+      headers: { ...auth, 'Content-Type': 'application/json', 'X-Title': 'tc-ventures model-router' },
       body: JSON.stringify({
         model,
         temperature: 0,
@@ -197,10 +204,10 @@ export async function plan(prompt, options = {}) {
   return { ...result, reason: `${result.reason} · decided by ${decidedBy}`, jev }
 }
 
-function apiKey() {
-  const key = process.env.OPENROUTER_API_KEY
-  if (!key) throw new Error('OPENROUTER_API_KEY is not set')
-  return key
+function apiAuth() {
+  const auth = openRouterAuth()
+  if (!auth) throw new Error('OPENROUTER_API_KEY is not set (or set OPENROUTER_AUTH=proxy when the environment adds the key)')
+  return auth
 }
 
 /** Routes and sends one prompt; returns the answer and the model that served it. */
@@ -210,7 +217,7 @@ export async function complete(prompt, options = {}) {
   const response = await fetch(`${API}/chat/completions`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey()}`,
+      ...apiAuth(),
       'Content-Type': 'application/json',
       'X-Title': 'tc-ventures model-router',
     },
