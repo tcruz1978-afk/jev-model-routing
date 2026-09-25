@@ -18,7 +18,7 @@ test('explicit model wins', () => {
 test('default routes end with the auto router', () => {
   const { models } = route('debug this python stack trace')
   assert.equal(models.at(-1), 'openrouter/auto')
-  assert.ok(models.length <= 4)
+  assert.ok(models.length <= 3, 'OpenRouter accepts at most 3 fallback models')
 })
 
 test('open-only routes use only open-weight models and never auto', () => {
@@ -56,7 +56,7 @@ test("Jev's category and tier drive the route", async () => {
   const fetchImpl = jevReply({ category: { choice: 'writing', confidence: 0.9 }, tier: { choice: 'quality', confidence: 0.8 } })
   const decision = await plan('fix this python bug', { env: TS, fetchImpl })
   assert.equal(decision.category, 'writing')
-  assert.deepEqual(decision.models.slice(0, 3), config.routes.writing.quality)
+  assert.deepEqual(decision.models.slice(0, 2), config.routes.writing.quality.slice(0, 2))
   assert.match(decision.reason, /Jev \(typesafe\)/)
   assert.equal(jevReply.last.url, 'https://api.typesafe.ai/v1/systemone')
   assert.equal(jevReply.last.init.body.model, 'jev-latest')
@@ -67,7 +67,7 @@ test('a fixed --prefer is not asked of Jev', async () => {
   const fetchImpl = jevReply({ category: { choice: 'code', confidence: 0.9 } })
   const decision = await plan('anything at all', { env: TS, fetchImpl, prefer: 'cheap' })
   assert.equal(jevReply.last.init.body.questions.tier, undefined)
-  assert.deepEqual(decision.models.slice(0, 3), config.routes.code.cheap)
+  assert.deepEqual(decision.models.slice(0, 2), config.routes.code.cheap.slice(0, 2))
 })
 
 test('an unsure or failed Jev falls back to the heuristics', async () => {
@@ -114,7 +114,7 @@ test('when Jev fails an OpenRouter chat model stands in', async () => {
   const { calls, fetchImpl } = openRouter({ chat: '{"category": "reasoning", "tier": "cheap", "confidence": 0.8}' })
   const decision = await plan('fix this python bug', { env: OR, fetchImpl })
   assert.equal(decision.category, 'reasoning')
-  assert.deepEqual(decision.models.slice(0, 3), config.routes.reasoning.cheap)
+  assert.deepEqual(decision.models.slice(0, 2), config.routes.reasoning.cheap.slice(0, 2))
   assert.match(decision.reason, /stand-in openai\/gpt-6-luna/)
   assert.deepEqual(calls.map((c) => c.url), ['https://openrouter.ai/api/v1/systemone', 'https://openrouter.ai/api/v1/chat/completions'])
   assert.equal(calls[1].body.model, config.decider.default)
@@ -147,4 +147,11 @@ test('a direct TypeSafe key is preferred, and TYPESAFE_BASE_URL is honoured', as
 test('--no-jev skips both Jev and the stand-in', async () => {
   const decision = await plan('fix this python bug', { env: { ...TS, ...OR }, jev: false, fetchImpl: () => assert.fail('no call expected') })
   assert.match(decision.reason, /heuristics/)
+})
+
+test('no route ever sends OpenRouter more than 3 models', () => {
+  for (const category of Object.keys(config.routes))
+    for (const prefer of ['quality', 'balanced', 'cheap'])
+      for (const open of [false, true])
+        assert.ok(route('x', { category, prefer, open }).models.length <= 3, `${category}/${prefer}/${open}`)
 })

@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url'
 
 const API = 'https://openrouter.ai/api/v1'
 const AUTO = 'openrouter/auto'
+// OpenRouter rejects a `models` fallback list longer than this.
+const MAX_MODELS = 3
 const TIERS = ['quality', 'balanced', 'cheap']
 const JEV_TIMEOUT_MS = 2000
 const DECIDER_TIMEOUT_MS = 5000
@@ -62,10 +64,11 @@ export function route(prompt, { model, prefer = 'balanced', open = false, catego
     // Top up from any open model in the category so the list is never empty.
     for (const tier of TIERS) for (const id of config.routes[picked][tier])
       if (config.models[id]?.open && !models.includes(id)) models.push(id)
-    models = models.slice(0, 3)
+    models = models.slice(0, MAX_MODELS)
     if (models.length === 0) throw new Error(`no open models configured for "${picked}"`)
   } else {
-    models = [...models.slice(0, 3), AUTO]
+    // OpenRouter accepts at most 3 entries in `models`, auto included.
+    models = [...models.slice(0, MAX_MODELS - 1), AUTO]
   }
   return { category: picked, models, reason: `${picked} / ${prefer}${open ? ' / open models only' : ''}` }
 }
