@@ -76,6 +76,16 @@ export const DEFAULT_BASE_URL: Record<Provider, string> = {
 /** OpenRouter's System One API, which serves Jev with TypeSafe's request shape. */
 export const OPENROUTER_SYSTEM_ONE_BASE_URL = 'https://openrouter.ai/api'
 
+/** Whether a URL is on openrouter.ai: the only host the OpenRouter key is sent to. */
+export function isOpenRouterUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url)
+    return protocol === 'https:' && (hostname === 'openrouter.ai' || hostname.endsWith('.openrouter.ai'))
+  } catch {
+    return false
+  }
+}
+
 export const DEFAULT_MODEL: Record<Provider, string> = {
   typesafe: 'jev-latest',
   gateway: 'typesafe-ai/jev',

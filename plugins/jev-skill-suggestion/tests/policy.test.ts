@@ -46,6 +46,7 @@ import {
   fallbackBody,
   fallbackEndpoint,
   readFallback,
+  isOpenRouterUrl,
 } from '../hooks/policy.ts'
 import type { Candidate, PolicyConfig, Skill } from '../hooks/policy.ts'
 
@@ -486,4 +487,13 @@ test('backup: reads one listed skill, none, or nothing', () => {
   expect(readFallback(reply(null), skills)).toBeUndefined()
   expect(readFallback('not json', skills)).toBeUndefined()
   expect(decide(builtinWide(readFallback(reply('{"skill": "commit"}'), skills)), null, skills, config).name).toBe('commit')
+})
+
+test('the OpenRouter key only goes to openrouter.ai', () => {
+  expect(isOpenRouterUrl('https://openrouter.ai/api')).toBe(true)
+  expect(isOpenRouterUrl('https://openrouter.ai/api/v1/chat/completions')).toBe(true)
+  expect(isOpenRouterUrl('https://api.typesafe.ai')).toBe(false)
+  expect(isOpenRouterUrl('https://openrouter.ai.evil.example')).toBe(false)
+  expect(isOpenRouterUrl('http://openrouter.ai/api')).toBe(false)
+  expect(isOpenRouterUrl('not a url')).toBe(false)
 })

@@ -117,6 +117,7 @@ import {
   wideQuestions,
   DEFAULT_FALLBACK,
   OPENROUTER_SYSTEM_ONE_BASE_URL,
+  isOpenRouterUrl,
   fallbackBody,
   fallbackEndpoint,
   readFallback,
@@ -189,12 +190,16 @@ export const register: Register = (on, options) => {
   let resolved = false
   const resolve = (openrouterKey: string) => {
     resolved = true
-    if (openrouterKey && !typesafeKey && !gatewayKey && (forced === 'auto' || forced === 'typesafe')) {
+    // The OpenRouter key only ever goes to OpenRouter: a typesafeBaseUrl or
+    // fallbackBaseUrl pointing elsewhere keeps it out.
+    const configuredBase = text('typesafeBaseUrl', '')
+    const typesafeOnOpenRouter = !configuredBase || isOpenRouterUrl(configuredBase)
+    if (openrouterKey && !typesafeKey && !gatewayKey && typesafeOnOpenRouter && (forced === 'auto' || forced === 'typesafe')) {
       typesafeKey = openrouterKey
-      if (!text('typesafeBaseUrl', '')) typesafeBase = OPENROUTER_SYSTEM_ONE_BASE_URL
+      if (!configuredBase) typesafeBase = OPENROUTER_SYSTEM_ONE_BASE_URL
       pickBackend()
     }
-    if (!fallbackKey) fallbackKey = openrouterKey
+    if (!fallbackKey && isOpenRouterUrl(fallbackUrl)) fallbackKey = openrouterKey
     unusableReported = forced === 'auto' || forced === 'builtin' || active !== null
   }
 
@@ -246,7 +251,10 @@ export const register: Register = (on, options) => {
   let displayToId: Map<string, string> | null = null
 
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
-    if (!resolved) resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '')
+    if (!resolved) {
+      resolved = true
+      resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '')
+    }
     if (!announced) {
       announced = true
       if (logDecisions) {
@@ -284,7 +292,10 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (!resolved) resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '')
+    if (!resolved) {
+      resolved = true
+      resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '')
+    }
     if (!announced) {
       announced = true
       if (logDecisions) {
