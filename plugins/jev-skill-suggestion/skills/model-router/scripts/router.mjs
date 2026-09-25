@@ -57,11 +57,16 @@ export function classify(prompt) {
 }
 
 /** Picks the category and the ordered model list, without calling anything. */
-export function route(prompt, { model, prefer = 'balanced', open = false, category } = {}) {
+export function route(prompt, { model, prefer = 'balanced', open = false, free = false, category } = {}) {
   if (!TIERS.includes(prefer)) throw new Error(`prefer must be one of ${TIERS.join(', ')}`)
   const picked = category ?? classify(prompt)
   if (model) return { category: picked, models: [model], reason: 'model named explicitly' }
   if (!config.routes[picked]) throw new Error(`unknown category "${picked}"`)
+  if (free) {
+    // Zero-cost models only (open weights, except the openrouter/free router).
+    const models = config.free[picked].filter((id) => !open || config.models[id]?.open).slice(0, MAX_MODELS)
+    return { category: picked, models, reason: `${picked} / free models${open ? ' / open only' : ''}` }
+  }
   let models = config.routes[picked][prefer]
   if (open) {
     models = models.filter((id) => config.models[id]?.open)
@@ -149,10 +154,10 @@ export async function askJev(prompt, { prefer, env = process.env, fetchImpl = fe
  * answers the same two questions as JSON. `--open` uses an open-weight one.
  * Returns null without an OpenRouter key, or on error, timeout or bad JSON.
  */
-export async function askDecider(prompt, { prefer, open, env = process.env, fetchImpl = fetch, timeoutMs = DECIDER_TIMEOUT_MS } = {}) {
+export async function askDecider(prompt, { prefer, open, free = false, env = process.env, fetchImpl = fetch, timeoutMs = DECIDER_TIMEOUT_MS } = {}) {
   const auth = openRouterAuth(env)
   if (!auth) return null
-  const model = env.ROUTER_DECIDER_MODEL || (open ? config.decider.open : config.decider.default)
+  const paid = env.ROUTER_DECIDER_MODEL || (open ? config.decider.open : config.decider.default)
   const list = (criteria) => Object.entries(criteria).map(([name, text]) => `- ${name}: ${text}`).join('\n')
   const system = [
     'You route requests to AI models. Classify the user request; do not answer it.',
@@ -160,8 +165,13 @@ export async function askDecider(prompt, { prefer, open, env = process.env, fetc
     prefer ? null : `Tiers:\n${list(TIER_CRITERIA)}`,
     `Reply with JSON only: {"category": "<category>",${prefer ? '' : ' "tier": "<tier>",'} "confidence": <0 to 1>}`,
   ].filter(Boolean).join('\n\n')
+  // Out of credit (402), or asked for free models: the free decider instead.
+  const candidates = free ? [config.decider.free] : [paid, config.decider.free]
   try {
-    const response = await fetchImpl(`${API}/chat/completions`, {
+    let response
+    let model
+    for (model of candidates) {
+      response = await fetchImpl(`${API}/chat/completions`, {
       method: 'POST',
       headers: { ...auth, 'Content-Type': 'application/json', 'X-Title': 'tc-ventures model-router' },
       body: JSON.stringify({
@@ -175,7 +185,9 @@ export async function askDecider(prompt, { prefer, open, env = process.env, fetc
         ],
       }),
       signal: AbortSignal.timeout(timeoutMs),
-    })
+      })
+      if (response.status !== 402) break
+    }
     if (!response.ok) return null
     const text = (await response.json()).choices?.[0]?.message?.content ?? ''
     const answer = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? 'null')
@@ -228,9 +240,9 @@ export function fellBack(requested, served) {
 export async function complete(prompt, options = {}) {
   const { env = process.env, fetchImpl = fetch, maxTokens = DEFAULT_MAX_TOKENS } = options
   if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('max tokens must be a positive integer')
-  const decision = await plan(prompt, options)
-  const [first, ...fallbacks] = decision.models
-  const response = await fetchImpl(`${API}/chat/completions`, {
+  let decision = await plan(prompt, options)
+  let outOfCredit = false
+  const send = (models) => fetchImpl(`${API}/chat/completions`, {
     method: 'POST',
     headers: {
       ...apiAuth(env),
@@ -238,18 +250,29 @@ export async function complete(prompt, options = {}) {
       'X-Title': 'tc-ventures model-router',
     },
     body: JSON.stringify({
-      model: first,
-      ...(fallbacks.length ? { models: decision.models } : {}),
+      model: models[0],
+      ...(models.length > 1 ? { models } : {}),
       max_tokens: maxTokens,
       messages: [...(options.system ? [{ role: 'system', content: options.system }] : []), { role: 'user', content: prompt }],
     }),
   })
+  let response = await send(decision.models)
+  // Out of credit: the same category on free models, unless a model was named.
+  if (response.status === 402 && !options.free && !options.model) {
+    outOfCredit = true
+    const decidedBy = decision.reason.split(' · ').find((part) => part.startsWith('decided by'))
+    decision = { ...route(prompt, { ...options, category: decision.category, free: true }), jev: decision.jev }
+    decision.reason = [decision.reason, decidedBy, 'out of credit, switched to free models'].filter(Boolean).join(' · ')
+    response = await send(decision.models)
+  }
+  const first = decision.models[0]
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${body.error?.message ?? JSON.stringify(body)}`)
   return {
     ...decision,
     model: body.model,
     fallbackFrom: fellBack(first, body.model) ? first : null,
+    outOfCredit,
     text: body.choices?.[0]?.message?.content ?? '',
     usage: body.usage,
   }
@@ -265,7 +288,7 @@ export async function listModels() {
 const USAGE = `Usage:
   node router.mjs "prompt" [--prefer quality|balanced|cheap] [--open] [--model <id>]
                            [--category <name>] [--system "..."] [--max-tokens <n>]
-                           [--no-jev] [--dry-run] [--json]
+                           [--no-jev] [--free] [--dry-run] [--json]
   node router.mjs check           verify every model in routes.json still exists
   node router.mjs models [text]   list OpenRouter's models, optionally filtered`
 
@@ -276,6 +299,7 @@ function parse(argv) {
     if (a === '--open') opts.open = true
     else if (a === '--dry-run') opts.dryRun = true
     else if (a === '--no-jev') opts.jev = false
+    else if (a === '--free') opts.free = true
     else if (a === '--json') opts.json = true
     else if (['--prefer', '--model', '--category', '--system'].includes(a)) opts[a.slice(2)] = argv[++i]
     else if (a === '--max-tokens') opts.maxTokens = Number(argv[++i])
@@ -311,6 +335,8 @@ async function main(argv) {
   if (opts.json) console.log(JSON.stringify(result, null, 2))
   else {
     console.log(`${result.text}\n\n[${result.model} · ${result.reason}]`)
+    if (result.outOfCredit)
+      console.error('note: the OpenRouter key is out of credit; answered by a free model (rate-limited: 20/min, 50/day)')
     if (result.fallbackFrom)
       console.error(`note: ${result.fallbackFrom} did not answer (down, refused, or over the key's credit limit); served by a fallback`)
   }

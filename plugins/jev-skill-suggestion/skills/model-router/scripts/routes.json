@@ -1,8 +1,9 @@
 {
-  "_comment": "Model IDs are OpenRouter slugs. Check them with `node router.mjs check` (needs network access to openrouter.ai) and edit freely. Each list is tried in order; openrouter/auto is always the last fallback. Refreshed from OpenRouter's catalog on 2026-09-25; \"open\" means the weights are published (the catalog lists a Hugging Face ID). \"decider\" answers Jev's questions while no Jev key is set (ROUTER_DECIDER_MODEL overrides it); \"open\" is used with --open.",
+  "_comment": "Model IDs are OpenRouter slugs. Check them with `node router.mjs check` (needs network access to openrouter.ai) and edit freely. Each list is tried in order; openrouter/auto is always the last fallback. Refreshed from OpenRouter's catalog on 2026-09-25; \"open\" means the weights are published (the catalog lists a Hugging Face ID). \"decider\" answers Jev's questions while no Jev key is set (ROUTER_DECIDER_MODEL overrides it); \"open\" is used with --open. \"free\" holds zero-cost models (OpenRouter ':free' variants, openrouter/free) used when the key is out of credit (HTTP 402) or with --free; free models are rate-limited (20/min, 50/day, or 1000/day once $10 of credit has been bought).",
   "decider": {
     "default": "openai/gpt-6-luna",
-    "open": "qwen/qwen3.8-flash"
+    "open": "qwen/qwen3.8-flash",
+    "free": "openrouter/free"
   },
   "models": {
     "anthropic/claude-haiku-4.5": {
@@ -55,6 +56,36 @@
     },
     "z-ai/glm-5.3-flash": {
       "open": true
+    },
+    "qwen/qwen3.8-27b:free": {
+      "open": true
+    },
+    "poolside/laguna-s-2.1:free": {
+      "open": true
+    },
+    "nvidia/nemotron-3-ultra-550b-a55b:free": {
+      "open": true
+    },
+    "z-ai/glm-5.2:free": {
+      "open": true
+    },
+    "thinkingmachines/inkling:free": {
+      "open": true
+    },
+    "google/gemma-4-31b-it:free": {
+      "open": true
+    },
+    "nvidia/nemotron-3.5-lightning:free": {
+      "open": true
+    },
+    "google/gemma-4-26b-a4b-it:free": {
+      "open": true
+    },
+    "nvidia/nemotron-3-super-120b-a12b:free": {
+      "open": true
+    },
+    "openrouter/free": {
+      "open": false
     }
   },
   "routes": {
@@ -160,5 +191,37 @@
         "qwen/qwen3.8-flash"
       ]
     }
+  },
+  "free": {
+    "code": [
+      "qwen/qwen3.8-27b:free",
+      "poolside/laguna-s-2.1:free",
+      "openrouter/free"
+    ],
+    "reasoning": [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "z-ai/glm-5.2:free",
+      "openrouter/free"
+    ],
+    "long_context": [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "thinkingmachines/inkling:free",
+      "openrouter/free"
+    ],
+    "writing": [
+      "z-ai/glm-5.2:free",
+      "google/gemma-4-31b-it:free",
+      "openrouter/free"
+    ],
+    "quick": [
+      "nvidia/nemotron-3.5-lightning:free",
+      "google/gemma-4-26b-a4b-it:free",
+      "openrouter/free"
+    ],
+    "general": [
+      "z-ai/glm-5.2:free",
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "openrouter/free"
+    ]
   }
 }

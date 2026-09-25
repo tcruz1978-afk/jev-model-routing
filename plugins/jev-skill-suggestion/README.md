@@ -192,6 +192,7 @@ With a key set, the prompt text and every candidate skill's name and one-line de
   fallbackApiKey:   string  key for the backup chat model asked when Jev gives no answer (OpenRouter by default); empty uses OPENROUTER_API_KEY, or skips it
   fallbackBaseUrl:  string  empty uses https://openrouter.ai/api/v1
   fallbackModel:    string  empty uses openai/gpt-6-luna
+  fallbackFreeModel: string asked when the backup answers 402 (out of OpenRouter credit); default openrouter/free; empty turns it off
   inject:           string  "content" attaches the chosen skill's SKILL.md (default); "suggest" names it for the Skill tool
   hideListing:      boolean withhold the engine's skill listing (default true)
   rerank:           boolean second request over the shortlist (default true)

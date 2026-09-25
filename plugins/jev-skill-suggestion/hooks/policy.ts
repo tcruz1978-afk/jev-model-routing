@@ -604,7 +604,7 @@ export function classifyText(prompt: string, skills: readonly Skill[]): string {
  * chat endpoint (OpenRouter by default) asked the built-in classifier's
  * question, answering with one skill name as JSON.
  */
-export const DEFAULT_FALLBACK = { baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-6-luna' }
+export const DEFAULT_FALLBACK = { baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-6-luna', freeModel: 'openrouter/free' }
 
 /** The backup's chat-completions URL. */
 export function fallbackEndpoint(baseUrl: string): string {

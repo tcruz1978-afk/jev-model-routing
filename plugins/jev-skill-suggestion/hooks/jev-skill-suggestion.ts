@@ -183,6 +183,8 @@ export const register: Register = (on, options) => {
   let fallbackKey = text('fallbackApiKey', '')
   const fallbackUrl = fallbackEndpoint(text('fallbackBaseUrl', DEFAULT_FALLBACK.baseUrl))
   const fallbackModel = text('fallbackModel', DEFAULT_FALLBACK.model)
+  // Asked instead when the paid backup answers 402 (out of credit); empty turns it off.
+  const fallbackFreeModel = typeof options.fallbackFreeModel === 'string' ? options.fallbackFreeModel : DEFAULT_FALLBACK.freeModel
 
   // A backend named in the options but missing its key degrades to the
   // built-in classifier, which is silent; say so once, when a hook first runs.
@@ -431,21 +433,28 @@ export const register: Register = (on, options) => {
     // Jev gave no answer (no key, error or timeout): the backup chat model
     // answers the built-in classifier's question. One label, no gate, no rerank.
     if (!wide && fallbackKey) {
-      decidedBy = `backup ${fallbackModel}`
-      try {
-        const response = await Promise.race([
-          $.http.fetch(fallbackUrl, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', ...authHeader(fallbackKey) },
-            body: fallbackBody(e.text, skills, fallbackModel),
-          }),
-          $.clock.sleep(Math.max(timeoutMs, 3000)),
-        ])
-        if (response && response.ok) wide = builtinWide(readFallback(response.text, skills))
-        else if (response) $.ui.log(`[jev-skill-suggestion] backup responded ${response.status}`)
-        else $.ui.log('[jev-skill-suggestion] backup timed out')
-      } catch (error) {
-        $.ui.log(`[jev-skill-suggestion] backup failed: ${String(error)}`)
+      // Out of credit (402) on the paid backup: the same question to a free
+      // model (rate-limited by OpenRouter, but zero-cost).
+      for (const model of [fallbackModel, fallbackFreeModel]) {
+        decidedBy = `backup ${model}`
+        try {
+          const response = await Promise.race([
+            $.http.fetch(fallbackUrl, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', ...authHeader(fallbackKey) },
+              body: fallbackBody(e.text, skills, model),
+            }),
+            $.clock.sleep(Math.max(timeoutMs, 3000)),
+          ])
+          if (response && response.ok) wide = builtinWide(readFallback(response.text, skills))
+          else if (response) $.ui.log(`[jev-skill-suggestion] backup ${model} responded ${response.status}`)
+          else $.ui.log(`[jev-skill-suggestion] backup ${model} timed out`)
+          if (!response || response.status !== 402 || !fallbackFreeModel || model === fallbackFreeModel) break
+          $.ui.log('[jev-skill-suggestion] out of OpenRouter credit; asking a free model')
+        } catch (error) {
+          $.ui.log(`[jev-skill-suggestion] backup failed: ${String(error)}`)
+          break
+        }
       }
     }
     if (!wide) {

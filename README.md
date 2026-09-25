@@ -57,6 +57,14 @@ node <plugin>/skills/model-router/scripts/router.mjs "Summarise this" --open --p
 node <plugin>/skills/model-router/scripts/router.mjs "anything" --dry-run
 ```
 
+## When credit runs out
+
+If the OpenRouter key runs out of credit, skill selection and the model router
+switch to OpenRouter's free models (`openrouter/free` and `:free` variants)
+instead of failing. Jev has no free version, so a free model decides until you
+add credit. Free models are rate-limited: 20 a minute, and 50 a day (1,000 a day
+once you've bought $10 of credit).
+
 ## How decisions fall back
 
 | Step | Skill selection | Model selection |

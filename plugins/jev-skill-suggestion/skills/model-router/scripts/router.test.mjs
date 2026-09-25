@@ -199,3 +199,59 @@ test('complete reports which first choice it fell back from', async () => {
   assert.equal((await complete('hi', { ...opts, fetchImpl: served(first) })).fallbackFrom, null)
   assert.equal((await complete('hi', { ...opts, fetchImpl: served('deepseek/deepseek-v4.1-flash') })).fallbackFrom, first)
 })
+
+// A fake OpenRouter that answers 402 (out of credit) for every paid model.
+const outOfCredit = () => {
+  const calls = []
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body)
+    calls.push({ url, body })
+    const isFree = (id) => id === 'openrouter/free' || String(id).endsWith(':free')
+    if (url.endsWith('/v1/systemone')) return { ok: false, status: 402, json: async () => ({ error: { message: 'Insufficient credits' } }) }
+    const models = body.models ?? [body.model]
+    if (!models.every(isFree)) return { ok: false, status: 402, json: async () => ({ error: { message: 'Insufficient credits' } }) }
+    if (body.response_format) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"category":"writing","tier":"cheap","confidence":0.9}' } }] }) }
+    return { ok: true, status: 200, json: async () => ({ model: models[0], choices: [{ message: { content: 'hi from a free model' } }] }) }
+  }
+  return { calls, fetchImpl }
+}
+
+test('out of credit: the decider and the answer both move to free models', async () => {
+  const { calls, fetchImpl } = outOfCredit()
+  const result = await complete('fix this python bug', { env: OR, fetchImpl })
+  assert.equal(result.text, 'hi from a free model')
+  assert.equal(result.outOfCredit, true)
+  assert.equal(result.category, 'writing')
+  assert.match(result.reason, /stand-in openrouter\/free/)
+  assert.match(result.reason, /out of credit, switched to free models/)
+  assert.deepEqual(result.models, config.free.writing)
+  const deciders = calls.filter((c) => c.body.response_format).map((c) => c.body.model)
+  assert.deepEqual(deciders, [config.decider.default, config.decider.free])
+})
+
+test('--free uses free models only, from the start', async () => {
+  const { calls, fetchImpl } = outOfCredit()
+  const result = await complete('fix this python bug', { env: OR, fetchImpl, free: true, jev: false })
+  assert.equal(result.outOfCredit, false)
+  assert.deepEqual(result.models, config.free.code)
+  assert.equal(calls.length, 1)
+})
+
+test('free routes: every model is a free one, 3 at most, open-only honoured', () => {
+  for (const category of Object.keys(config.routes)) {
+    for (const open of [false, true]) {
+      const { models } = route('x', { category, free: true, open })
+      assert.ok(models.length >= 1 && models.length <= 3, `${category}/${open}`)
+      for (const id of models) {
+        assert.ok(id === 'openrouter/free' || id.endsWith(':free'), id)
+        assert.ok(config.models[id], `${id} declared`)
+        if (open) assert.equal(config.models[id].open, true, id)
+      }
+    }
+  }
+})
+
+test('a named model is never swapped for a free one', async () => {
+  const { fetchImpl } = outOfCredit()
+  await assert.rejects(complete('hi', { env: OR, fetchImpl, model: 'openai/gpt-6-sol' }), /402/)
+})
