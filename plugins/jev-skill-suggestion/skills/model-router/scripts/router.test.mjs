@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, route, plan, config } from './router.mjs'
+import { classify, route, plan, complete, fellBack, config, DEFAULT_MAX_TOKENS } from './router.mjs'
 
 test('classifies common task types', () => {
   assert.equal(classify('Fix this bug in my TypeScript function'), 'code')
@@ -170,4 +170,32 @@ test('OPENROUTER_AUTH=proxy: Jev and the stand-in go out with no Authorization h
 test('neither a key nor proxy mode: no OpenRouter calls', async () => {
   const decision = await plan('fix this python bug', { env: { OPENROUTER_AUTH: 'nope' }, fetchImpl: () => assert.fail('no call expected') })
   assert.match(decision.reason, /heuristics/)
+})
+
+test('completions cap max_tokens: the default, or what the caller asks for', async () => {
+  const { calls, fetchImpl } = openRouter({ chat: 'Hello there, how are you?' })
+  const result = await complete('hi', { env: OR, fetchImpl, jev: false, prefer: 'cheap' })
+  assert.equal(result.text, 'Hello there, how are you?')
+  assert.equal(calls.at(-1).url, 'https://openrouter.ai/api/v1/chat/completions')
+  assert.equal(calls.at(-1).body.max_tokens, DEFAULT_MAX_TOKENS)
+  await complete('hi', { env: OR, fetchImpl, jev: false, maxTokens: 256 })
+  assert.equal(calls.at(-1).body.max_tokens, 256)
+  for (const maxTokens of [0, -1, 1.5, NaN])
+    await assert.rejects(complete('hi', { env: OR, fetchImpl, jev: false, maxTokens }), /positive integer/)
+})
+
+test('fellBack: only a different model than the first choice counts', () => {
+  assert.equal(fellBack('anthropic/claude-haiku-4.5', 'anthropic/claude-haiku-4.5'), false)
+  assert.equal(fellBack('anthropic/claude-haiku-4.5', 'anthropic/claude-haiku-4.5-20251001'), false)
+  assert.equal(fellBack('anthropic/claude-haiku-4.5', 'deepseek/deepseek-v4.1-flash'), true)
+  assert.equal(fellBack('openrouter/auto', 'deepseek/deepseek-v4.1-flash'), false)
+  assert.equal(fellBack('anthropic/claude-haiku-4.5', undefined), false)
+})
+
+test('complete reports which first choice it fell back from', async () => {
+  const served = (model) => async () => ({ ok: true, json: async () => ({ model, choices: [{ message: { content: 'hi' } }] }) })
+  const opts = { env: OR, jev: false, category: 'quick', prefer: 'quality' }
+  const [first] = route('hi', opts).models
+  assert.equal((await complete('hi', { ...opts, fetchImpl: served(first) })).fallbackFrom, null)
+  assert.equal((await complete('hi', { ...opts, fetchImpl: served('deepseek/deepseek-v4.1-flash') })).fallbackFrom, first)
 })

@@ -20,6 +20,10 @@ const JEV_TIMEOUT_MS = 2000
 const DECIDER_TIMEOUT_MS = 5000
 // Below this confidence a pick is ignored and the heuristics decide.
 const JEV_MIN_CONFIDENCE = 0.35
+// Output cap sent with every completion. Without one, OpenRouter reserves the
+// model's whole output limit (often 128k tokens) against the key's credit limit
+// and refuses the request up front when that doesn't fit.
+export const DEFAULT_MAX_TOKENS = 4096
 
 // What Jev chooses between.
 const CATEGORIES = {
@@ -204,32 +208,51 @@ export async function plan(prompt, options = {}) {
   return { ...result, reason: `${result.reason} · decided by ${decidedBy}`, jev }
 }
 
-function apiAuth() {
-  const auth = openRouterAuth()
+function apiAuth(env = process.env) {
+  const auth = openRouterAuth(env)
   if (!auth) throw new Error('OPENROUTER_API_KEY is not set (or set OPENROUTER_AUTH=proxy when the environment adds the key)')
   return auth
 }
 
+/**
+ * Whether OpenRouter answered with something other than the first choice.
+ * OpenRouter may report a dated variant of the ID (`…-20251001`), and
+ * `openrouter/auto` always answers as some other model, so neither counts.
+ */
+export function fellBack(requested, served) {
+  if (!served || requested === AUTO) return false
+  return served !== requested && !served.startsWith(`${requested}-`)
+}
+
 /** Routes and sends one prompt; returns the answer and the model that served it. */
 export async function complete(prompt, options = {}) {
+  const { env = process.env, fetchImpl = fetch, maxTokens = DEFAULT_MAX_TOKENS } = options
+  if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('max tokens must be a positive integer')
   const decision = await plan(prompt, options)
   const [first, ...fallbacks] = decision.models
-  const response = await fetch(`${API}/chat/completions`, {
+  const response = await fetchImpl(`${API}/chat/completions`, {
     method: 'POST',
     headers: {
-      ...apiAuth(),
+      ...apiAuth(env),
       'Content-Type': 'application/json',
       'X-Title': 'tc-ventures model-router',
     },
     body: JSON.stringify({
       model: first,
       ...(fallbacks.length ? { models: decision.models } : {}),
+      max_tokens: maxTokens,
       messages: [...(options.system ? [{ role: 'system', content: options.system }] : []), { role: 'user', content: prompt }],
     }),
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(`OpenRouter ${response.status}: ${body.error?.message ?? JSON.stringify(body)}`)
-  return { ...decision, model: body.model, text: body.choices?.[0]?.message?.content ?? '', usage: body.usage }
+  return {
+    ...decision,
+    model: body.model,
+    fallbackFrom: fellBack(first, body.model) ? first : null,
+    text: body.choices?.[0]?.message?.content ?? '',
+    usage: body.usage,
+  }
 }
 
 /** OpenRouter's live model catalog (public; no key needed). */
@@ -241,7 +264,8 @@ export async function listModels() {
 
 const USAGE = `Usage:
   node router.mjs "prompt" [--prefer quality|balanced|cheap] [--open] [--model <id>]
-                           [--category <name>] [--system "..."] [--no-jev] [--dry-run] [--json]
+                           [--category <name>] [--system "..."] [--max-tokens <n>]
+                           [--no-jev] [--dry-run] [--json]
   node router.mjs check           verify every model in routes.json still exists
   node router.mjs models [text]   list OpenRouter's models, optionally filtered`
 
@@ -254,6 +278,7 @@ function parse(argv) {
     else if (a === '--no-jev') opts.jev = false
     else if (a === '--json') opts.json = true
     else if (['--prefer', '--model', '--category', '--system'].includes(a)) opts[a.slice(2)] = argv[++i]
+    else if (a === '--max-tokens') opts.maxTokens = Number(argv[++i])
     else if (a === '-h' || a === '--help') opts.help = true
     else opts._.push(a)
   }
@@ -284,7 +309,11 @@ async function main(argv) {
   }
   const result = await complete(prompt, opts)
   if (opts.json) console.log(JSON.stringify(result, null, 2))
-  else console.log(`${result.text}\n\n[${result.model} · ${result.reason}]`)
+  else {
+    console.log(`${result.text}\n\n[${result.model} · ${result.reason}]`)
+    if (result.fallbackFrom)
+      console.error(`note: ${result.fallbackFrom} did not answer (down, refused, or over the key's credit limit); served by a fallback`)
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
