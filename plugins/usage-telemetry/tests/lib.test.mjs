@@ -213,7 +213,7 @@ test('misses ship without words; the words go only to the local file, and are fo
 
 // ---------- the dashboard's checks, guards and refresh machinery ----------
 
-import { DAY, TARGETS, TARGET_NOTES, failingTools, fmtTime, isStale, landStats, median, reconcile, runChecks, trendBuckets, verdictOf, windowOf } from '../scripts/checks.mjs'
+import { DAY, TARGETS, TARGET_NOTES, failingTools, fmtTime, isStale, landStats, median, reconcile, runChecks, trendBuckets, verdictOf, windowOf, fixedRouterFailure } from '../scripts/checks.mjs'
 import { buildPayload, checkGuards, extractData, latestSnapshot, missingKeys, parseEvents, runLine, snapshot, sourceProblem, whatMoved } from '../scripts/dashboard.mjs'
 import { projectLabel } from '../scripts/lib.mjs'
 import { spawnSync } from 'node:child_process'
@@ -744,4 +744,28 @@ test('the action list holds only things someone has to do; self-clearing items g
   const none = actionsHtml([{ text: 'Nothing to do — x.', who: 'Nothing', doneWhen: 'y.' }])
   assert.ok(none.startsWith('<p class="none">Nothing to do.</p>'))
   assert.ok(none.includes('1 other item clears on its own'))
+})
+
+test('router check: failures the router has since been fixed to recover from are listed apart, not counted', () => {
+  const fix = Date.parse('2026-09-26T20:05:19Z')
+  const fixes = { skills: 0, jevLog: 0, router: fix }
+  const end = fix + 3600000
+  const call = (t, ok, requested, error = null) => ({ k: 'router.call', t, s: 1, h: 'cloud', m: requested, ok, d: { requested, error, category: 'code' } })
+  const before = fix - 60000, after = fix + 60000
+  const rows = [
+    call(before, false, 'qwen/qwen3.8-27b:free', 'OpenRouter 429: Provider returned error'),
+    call(before, false, 'z-ai/glm-5.2:free', 'OpenRouter 404: This model is unavailable for free.'),
+    call(before, false, 'moonshotai/kimi-k3', 'OpenRouter 402: This request would exceed your available credits given your current in-flight requests.'),
+    // Not something the fix covers: a paid model's 429, and a 402 that is plain out of credit.
+    call(before, false, 'moonshotai/kimi-k3', 'OpenRouter 429: Provider returned error'),
+    call(before, false, 'moonshotai/kimi-k3', 'OpenRouter 402: Insufficient credits'),
+    // After the fix every failure counts.
+    call(after, false, 'qwen/qwen3.8-27b:free', 'OpenRouter 429: Provider returned error'),
+    ...Array.from({ length: 10 }, (_, i) => call(after + i, true, 'poolside/laguna-s-2.1:free')),
+  ]
+  assert.deepEqual(rows.map((r) => fixedRouterFailure(r, fixes)), [true, true, true, false, false, false, ...Array(10).fill(false)])
+  const router = runChecks({ fixes, rows, generatedAt: end, days: 7 }).checks.find((c) => c.id === 'router')
+  assert.equal(router.n, 13)
+  assert.match(router.population, /^3 errors \+ 0 fallbacks of 13 routed calls/)
+  assert.ok(router.lines.some((l) => /^Not counted, fixed since: 3 failures/.test(l)))
 })
