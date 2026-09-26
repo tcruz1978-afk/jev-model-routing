@@ -9,8 +9,9 @@
  * dashboard.mjs inlines it into the page after checks.mjs and turns.mjs (it
  * strips `import` and `export`). Keep its imports to those two files.
  *
- * What it reads, and nothing else: the columns in LIVE_COLUMNS, `data` only
- * for the kinds in DATA_KINDS, the last LIVE.days days. Prompt text is never
+ * What it reads, and nothing else: the columns in LIVE_COLUMNS, `data` for
+ * the kinds in DATA_KINDS, a prompt's labels in PROMPT_FIELDS (its kind of
+ * request, never its words), the last LIVE.days days. Prompt text is never
  * recorded, and this never asks for it.
  */
 import { DAY, attribute, confidenceOf } from './checks.mjs'
@@ -27,8 +28,10 @@ export const LIVE = {
 }
 
 export const LIVE_COLUMNS = ['id', 'kind', 'ts', 'session', 'host', 'project', 'agent', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'tool', 'skill', 'mcp_server', 'ok']
-/** The only kinds whose `data` payload is read. */
-export const DATA_KINDS = ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool']
+/** The only kinds whose `data` payload is read whole. */
+export const DATA_KINDS = ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool', 'jq.decision', 'jq.outcome']
+/** A prompt's data is read only for these labels: its kind of request, never its words. */
+export const PROMPT_FIELDS = ['category', 'slash', 'correction']
 
 const sqlText = (s) => `'${String(s).replace(/'/g, "''")}'`
 
@@ -44,7 +47,8 @@ export function liveQuery({ days = LIVE.days, after = null, limit = LIVE.pageSiz
     where.push(`(ts, id) < (${sqlText(after.ts)}::timestamptz, ${sqlText(after.id)})`)
   }
   const kinds = DATA_KINDS.map(sqlText).join(',')
-  return `select ${LIVE_COLUMNS.join(',')}, case when kind in (${kinds}) then data end as data from claude_usage.events where ${where.join(' and ')} order by ts desc, id desc limit ${Math.max(1, Math.floor(limit))}`
+  const promptData = `jsonb_build_object(${PROMPT_FIELDS.map((f) => `'${f}', data->'${f}'`).join(', ')})`
+  return `select ${LIVE_COLUMNS.join(',')}, case when kind in (${kinds}) then data when kind = 'prompt' then ${promptData} end as data from claude_usage.events where ${where.join(' and ')} order by ts desc, id desc limit ${Math.max(1, Math.floor(limit))}`
 }
 
 /**
@@ -97,7 +101,8 @@ export function eventFromRow(row) {
   const event = {}
   for (const key of LIVE_COLUMNS) event[key] = row[key] ?? null
   event.ts = isoTime(row.ts)
-  event.data = DATA_KINDS.includes(row.kind) && row.data && typeof row.data === 'object' ? row.data : {}
+  const data = row.data && typeof row.data === 'object' ? row.data : {}
+  event.data = DATA_KINDS.includes(row.kind) ? data : row.kind === 'prompt' ? Object.fromEntries(PROMPT_FIELDS.filter((f) => data[f] !== undefined && data[f] !== null).map((f) => [f, data[f]])) : {}
   return event
 }
 
@@ -154,6 +159,10 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
       if (data.subagent_type && data.background) row.bg = 1
     } else if (event.kind === 'openrouter.key' || event.kind === 'jev.miss') {
       row.d = data
+    } else if (event.kind === 'jq.decision') {
+      row.d = { jq: data.jq ?? null, answer: data.answer ?? null, conf: Number.isFinite(data.confidence) ? data.confidence : null, decidedBy: data.decidedBy ?? null }
+    } else if (event.kind === 'jq.outcome') {
+      row.d = { jq: data.jq ?? null, outcome: data.outcome ?? null }
     } else if (event.kind === 'prompt') {
       if (data.slash) row.sl = 1
       if (data.category) row.cat = data.category

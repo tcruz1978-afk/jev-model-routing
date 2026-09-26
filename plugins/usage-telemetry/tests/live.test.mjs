@@ -35,12 +35,12 @@ function fakeMcp(rows, { fail = [] } = {}) {
   }
 }
 
-test('the query reads only the agreed columns, data only for five kinds, 180 days, newest first', () => {
+test('the query reads only the agreed columns, whole data for seven kinds, a prompt\'s labels, 180 days, newest first', () => {
   const q = liveQuery()
-  assert.equal(q, `select ${LIVE_COLUMNS.join(',')}, case when kind in ('jev.decision','jev.miss','router.call','openrouter.key','tool') then data end as data from claude_usage.events where ts > now() - interval '180 days' order by ts desc, id desc limit 1000`)
+  assert.equal(q, `select ${LIVE_COLUMNS.join(',')}, case when kind in ('jev.decision','jev.miss','router.call','openrouter.key','tool','jq.decision','jq.outcome') then data when kind = 'prompt' then jsonb_build_object('category', data->'category', 'slash', data->'slash', 'correction', data->'correction') end as data from claude_usage.events where ts > now() - interval '180 days' order by ts desc, id desc limit 1000`)
   assert.deepEqual(LIVE_COLUMNS, ['id', 'kind', 'ts', 'session', 'host', 'project', 'agent', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'tool', 'skill', 'mcp_server', 'ok'])
-  assert.deepEqual(DATA_KINDS, ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool'])
-  assert.ok(!/\*|received_at|prompt/.test(q), 'no select *, no other columns, nothing about prompts')
+  assert.deepEqual(DATA_KINDS, ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool', 'jq.decision', 'jq.outcome'])
+  assert.ok(!/\*|received_at|'text'|'chars'|'question'/.test(q), 'no select *, no other columns, no words')
   assert.equal(LIVE.server, 'Supabase')
   assert.equal(LIVE.project, 'toohsvdpofzfwrgwlaxz')
 })
@@ -69,12 +69,12 @@ test('rows come out of every answer shape the connector gives, and garbage is an
   assert.throws(() => rowsFromResult({ payload: { result: tagged('[{"id":"tool:secret-ish","kind":') } }), (e) => !e.message.includes('secret-ish'))
 })
 
-test('a row becomes an event: ISO time, only the agreed columns, data only for the five kinds', () => {
+test('a row becomes an event: ISO time, only the agreed columns, only the agreed data', () => {
   assert.equal(isoTime('2026-09-26 14:01:29.706+00'), '2026-09-26T14:01:29.706Z')
   assert.equal(isoTime('2026-09-26 16:01:29+02'), '2026-09-26T14:01:29.000Z')
   assert.equal(isoTime('nonsense'), null)
-  const prompt = eventFromRow(row('p', 'prompt', 3, { data: { text: 'secret prompt', slash: true }, extra: 'x' }))
-  assert.deepEqual(prompt.data, {})
+  const prompt = eventFromRow(row('p', 'prompt', 3, { data: { text: 'secret prompt', slash: true, category: 'fix', chars: 13 }, extra: 'x' }))
+  assert.deepEqual(prompt.data, { category: 'fix', slash: true }, 'only the labels, never the words')
   assert.ok(!('extra' in prompt))
   assert.ok(!JSON.stringify(prompt).includes('secret'))
   assert.deepEqual(eventFromRow(row('t', 'tool', 3, { data: { ms: 40 } })).data, { ms: 40 })

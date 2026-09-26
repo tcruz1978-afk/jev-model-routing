@@ -118,21 +118,41 @@ export function summarize(payload) {
   }
 }
 
+/** What you pay for Claude (plan.json), or null when it is missing or malformed. */
+export function readPlan(path = join(here, 'plan.json')) {
+  try {
+    const plan = JSON.parse(readFileSync(path, 'utf8'))
+    return typeof plan.name === 'string' && Number.isFinite(plan.monthlyUsd) && plan.monthlyUsd >= 0 ? { name: plan.name, monthlyUsd: plan.monthlyUsd } : null
+  } catch {
+    return null
+  }
+}
+
+/** Claude's list prices per million tokens (prices.json), for pricing routed calls as if Claude had answered them. */
+export function claudeRates(path = join(here, 'prices.json')) {
+  try {
+    const claude = JSON.parse(readFileSync(path, 'utf8')).claude ?? {}
+    return Object.fromEntries(Object.entries(claude).map(([model, p]) => [model, { input: p.input, output: p.output }]))
+  } catch {
+    return {}
+  }
+}
+
 /** The full DATA object for the page. */
 export function buildPayload(events, { source = 'local', now = Date.now(), days = 180, tiers = null } = {}) {
   const payload = compact(events, { days, now })
   const last = payload.rows[payload.rows.length - 1]
   const first = payload.rows[0]
-  const full = { source, generatedAt: new Date(now).toISOString(), firstEventAt: first ? new Date(first.t).toISOString() : null, lastEventAt: last ? new Date(last.t).toISOString() : null, prices: pricesProvenance(), jevTiers: readTierBenchmark(tiers), ...payload }
+  const full = { source, generatedAt: new Date(now).toISOString(), firstEventAt: first ? new Date(first.t).toISOString() : null, lastEventAt: last ? new Date(last.t).toISOString() : null, prices: pricesProvenance(), plan: readPlan(), rates: claudeRates(), jevTiers: readTierBenchmark(tiers), ...payload }
   full.summary = summarize(full)
   return full
 }
 
 export function render(payload, generatedAt) {
   const template = readFileSync(join(here, 'dashboard.html'), 'utf8')
-  // The page runs the same arithmetic (checks.mjs), live loader (turns.mjs, live.mjs), words (present.mjs) and explorer (explore.mjs) the tests do.
+  // The page runs the same arithmetic (checks.mjs), live loader (turns.mjs, live.mjs), words (present.mjs), explorer (explore.mjs) and rankings (rankings.mjs) the tests do.
   const inline = (file) => readFileSync(join(here, file), 'utf8').replace(/^import [^\n]*\n/gm, '').replace(/^export \{[^}]*\}[^\n]*\n/gm, '').replace(/^export /gm, '')
-  const checks = ['checks.mjs', 'turns.mjs', 'live.mjs', 'present.mjs', 'explore.mjs'].map(inline).join('\n')
+  const checks = ['checks.mjs', 'turns.mjs', 'live.mjs', 'present.mjs', 'explore.mjs', 'rankings.mjs'].map(inline).join('\n')
   const data = { ...payload, generatedAt: payload.generatedAt ?? (generatedAt ?? new Date()).toISOString() }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
   // Functions, not strings: `$` in the inserted text must stay literal.

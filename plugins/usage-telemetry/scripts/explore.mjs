@@ -19,6 +19,7 @@
  */
 import { DAY, JEV_TIERS, feedEntry, feedType, hostMatch, jevOutcomes, modelName, n0, pct, periodStart, tierOf } from './checks.mjs'
 import { usdTop } from './present.mjs'
+import { categoryLabel } from './rankings.mjs'
 
 export const HOUR = 3600000
 export const GRAIN_MS = { hour: HOUR, day: DAY, week: 7 * DAY }
@@ -93,6 +94,7 @@ export const DIMS = [
   { id: 'chat', label: 'Chat', none: 'no chat' },
   { id: 'tier', label: 'Jev tier', none: 'not a Jev decision' },
   { id: 'category', label: 'Router task', none: 'not routed' },
+  { id: 'task', label: 'Kind of request', none: 'not recorded' },
   { id: 'outcome', label: 'Outcome', none: 'no outcome' },
 ]
 export const DIM_IDS = DIMS.map((d) => d.id)
@@ -128,6 +130,8 @@ export function dimKey(id, r, sessions = []) {
     case 'chat': return r.s >= 0 ? sessions[r.s] ?? String(r.s) : ''
     case 'tier': return r.k === 'jev.decision' ? tierOf(r.d?.decidedBy) : ''
     case 'category': return r.k === 'router.call' ? r.d?.category ?? 'not given' : ''
+    // A prompt's own kind; buildIndex gives every other row its request's kind.
+    case 'task': return r.k === 'prompt' ? r.cat ?? '' : ''
     case 'outcome':
       if (r.k === 'tool' || r.k === 'router.call') return r.ok === false ? 'failed' : r.ok === true ? 'ok' : ''
       return r.k === 'api' ? 'ok' : ''
@@ -155,6 +159,7 @@ export function dimLabel(id, key, ix = null) {
       return t ? `${t.label}${t.paid === true ? ' · paid' : t.paid === false ? ' · free' : ''}` : key
     }
     case 'outcome': return key === 'ok' ? 'OK' : key === 'failed' ? 'Failed' : key
+    case 'task': return categoryLabel(key)
     default: return key
   }
 }
@@ -246,6 +251,7 @@ export const METRICS = [
   { id: 'openrouter', label: 'OpenRouter spend (routed calls)', unit: 'usd', add: true, of: (a) => a.or },
   { id: 'requests', label: 'Requests (your prompts)', unit: 'count', add: true, of: (a) => a.prompts },
   { id: 'calls', label: 'Model calls', unit: 'count', add: true, of: (a) => a.api + a.routed },
+  { id: 'tokens', label: 'Tokens (in and out)', unit: 'tokens', add: true, of: (a) => a.tin + a.tout },
   { id: 'tokensIn', label: 'Tokens in', unit: 'tokens', add: true, of: (a) => a.tin },
   { id: 'tokensOut', label: 'Tokens out', unit: 'tokens', add: true, of: (a) => a.tout },
   { id: 'tokensCache', label: 'Tokens read from cache', unit: 'tokens', add: true, of: (a) => a.tcache },
@@ -266,7 +272,7 @@ export const metricById = (id) => METRICS.find((m) => m.id === id) ?? METRICS[0]
 const MODEL_TYPES = ['model', 'router']
 const TIMED_TYPES = ['tool', 'connector', 'subagent', 'router', 'jev']
 export const METRIC_TYPES = {
-  spend: MODEL_TYPES, claude: ['model'], openrouter: ['router'], requests: ['prompt'], calls: MODEL_TYPES, tokensIn: MODEL_TYPES, tokensOut: MODEL_TYPES,
+  spend: MODEL_TYPES, claude: ['model'], openrouter: ['router'], requests: ['prompt'], calls: MODEL_TYPES, tokens: MODEL_TYPES, tokensIn: MODEL_TYPES, tokensOut: MODEL_TYPES,
   tokensCache: MODEL_TYPES, cacheRate: MODEL_TYPES, costPerM: MODEL_TYPES, tools: ['tool', 'connector', 'subagent'], failures: ['tool', 'connector', 'subagent', 'router'],
   failRate: ['tool', 'connector', 'subagent', 'router'], p50: TIMED_TYPES, p90: TIMED_TYPES, jev: ['jev'], missRate: ['jev'],
 }
@@ -335,11 +341,14 @@ export function buildIndex(input, sessions = []) {
   const flagged = new Set(jevOutcomes(rows, []).decisions.filter((d) => d.miss).map((d) => d.r))
   const miss = new Uint8Array(n)
   const chatStart = new Map()
+  // The kind of request each row worked for: the latest main prompt in its chat.
+  const taskNow = new Map()
   for (let i = 0; i < n; i++) {
     const r = rows[i]
     t[i] = r.t
+    if (r.k === 'prompt' && (!r.a || r.a === 'main')) taskNow.set(r.s, r.cat ?? '')
     for (const d of DIMS) {
-      const key = dimKey(d.id, r, sessions)
+      const key = d.id === 'task' ? (r.k === 'prompt' ? r.cat ?? '' : r.s >= 0 ? taskNow.get(r.s) ?? '' : '') : dimKey(d.id, r, sessions)
       const D = dims[d.id]
       let c = D.lookup.get(key)
       if (c === undefined) {
@@ -584,11 +593,14 @@ export async function saveFile(downloads, filename, data) {
 
 // ---------- the view in the URL hash ----------
 
-export const TABS = ['overview', 'explore', 'logs', 'jev', 'router', 'health']
+export const TABS = ['rankings', 'compare', 'overview', 'explore', 'logs', 'jev', 'router', 'health']
+/** Rankings: what the top-models chart shows, and what the performance ranking ranks by. */
+export const SHOWS = ['spend', 'tokens', 'calls']
+export const RANK_BY = ['landed', 'speed', 'cost', 'failures', 'cache', 'spend']
 export const PERIODS = ['1', '7', '30', '90', 'custom']
 export const CHARTS = ['bar', 'line', 'dot']
 export const GRAINS = ['hour', 'day', 'week', 'none']
-export const DEFAULT_VIEW = { tab: 'overview', p: '7', from: '', to: '', h: 'all', m: 'spend', g: ['model'], c: 'bar', t: 'day', f: {}, q: '', pg: 0, lf: null, lt: null }
+export const DEFAULT_VIEW = { tab: 'rankings', sh: 'spend', rk: 'landed', cat: '', cm: [], p: '7', from: '', to: '', h: 'all', m: 'spend', g: ['model'], c: 'bar', t: 'day', f: {}, q: '', pg: 0, lf: null, lt: null }
 const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s ?? '') && Number.isFinite(Date.parse(s + 'T00:00:00Z'))
 
 /** The view as a hash (without '#'): the tab, then only what differs from the defaults. */
@@ -601,6 +613,10 @@ export function encodeView(v) {
     if (v.to) p.set('to', v.to)
   }
   if (v.h !== d.h) p.set('h', v.h)
+  if (v.sh && v.sh !== d.sh) p.set('sh', v.sh)
+  if (v.rk && v.rk !== d.rk) p.set('rk', v.rk)
+  if (v.cat) p.set('cat', v.cat)
+  if ((v.cm ?? []).length) p.set('cm', v.cm.join('~'))
   if (v.m !== d.m) p.set('m', v.m)
   if ((v.g ?? []).join(',') !== d.g.join(',')) p.set('g', (v.g ?? []).join(',') || 'none')
   if (v.c !== d.c) p.set('c', v.c)
@@ -644,6 +660,10 @@ export function decodeView(hash) {
     from: period === 'custom' && isDay(p.get('from')) ? p.get('from') : '',
     to: period === 'custom' && isDay(p.get('to')) ? p.get('to') : '',
     h: pick('h', ['all', 'cloud', 'local'], d.h),
+    sh: pick('sh', SHOWS, d.sh),
+    rk: pick('rk', RANK_BY, d.rk),
+    cat: /^[a-z][a-z-]{0,30}$/.test(p.get('cat') ?? '') ? p.get('cat') : '',
+    cm: p.has('cm') ? [...new Set(String(p.get('cm')).split('~').filter((k) => /^[cr]:[\w.:@/-]{1,120}$/.test(k)))].slice(0, 5) : [],
     m: METRICS.some((m) => m.id === p.get('m')) ? p.get('m') : d.m,
     g,
     c: pick('c', CHARTS, d.c),

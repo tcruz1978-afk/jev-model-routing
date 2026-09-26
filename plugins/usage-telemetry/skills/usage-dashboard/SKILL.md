@@ -25,7 +25,7 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
    `insert into claude_usage.events (id,kind,ts,session,host,project,agent,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,tool,skill,mcp_server,ok,data) select ...,coalesce(data,'{}') from jsonb_populate_recordset(null::claude_usage.events, '<json array>'::jsonb) on conflict (id) do update set output_tokens=excluded.output_tokens, cost_usd=excluded.cost_usd, ok=excluded.ok, data=excluded.data`,
    then delete the outbox file. Escape `'` in the JSON as `''`.
 3. Get every host's events, not just this machine's: with the Supabase MCP,
-   `select coalesce(json_agg(e order by ts), '[]') from (select id,kind,ts,session,host,project,agent,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,tool,skill,mcp_server,ok, case when kind in ('jev.decision','jev.miss','router.call','openrouter.key','tool') then data else '{}'::jsonb end as data from claude_usage.events where ts > now() - interval '180 days') e`
+   `select coalesce(json_agg(e order by ts), '[]') from (select id,kind,ts,session,host,project,agent,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,tool,skill,mcp_server,ok, case when kind in ('jev.decision','jev.miss','router.call','openrouter.key','tool','jq.decision','jq.outcome') then data when kind = 'prompt' then jsonb_build_object('category', data->'category', 'slash', data->'slash', 'correction', data->'correction') else '{}'::jsonb end as data from claude_usage.events where ts > now() - interval '180 days') e`
    (180 days: the page's longest range is 90, compared with the 90 before)
    and save the array to a file. For a large result, run the query in a
    subagent that writes the file and returns only the row count. Without the
@@ -81,6 +81,32 @@ The build still matters: its DATA is that saved copy (inlined as
 `SNAPSHOT`), the fallback every viewer without the connector sees, and what
 the guards and snapshots compare. The first viewer to open it is asked once
 to allow Supabase for the page.
+
+## Rankings and Compare models
+
+The page opens on **Rankings**, laid out like OpenRouter's model rankings
+(the arithmetic is in `scripts/rankings.mjs`, inlined and tested like
+`checks.mjs`):
+
+1. **What you paid, and what it bought**: the plan in `scripts/plan.json`
+   (name and monthly price) spread over the hours with data, plus what
+   OpenRouter billed on the key; set beside Claude's work at pay-as-you-go
+   prices, paid per request, and OpenRouter credit left.
+2. **Top models**: spend, tokens or model calls by model over time, with a
+   leaderboard, filtered by kind of request (the collector's category label
+   per prompt: fix, build, review, ship, setup, design, data, writing,
+   research, command, reply, other; never the prompt's words).
+3. **Top models by task**: each kind of request's models ranked by landed rate.
+4. **Performance ranking**: models best first by landed rate, speed, typical
+   cost per request, failure rate, cache hits or spend; under 10 is too few
+   to judge and goes unranked.
+5. **Is it making the work more efficient?**: Jev (with a pick against
+   without, and OpenRouter spend no routed call explains), the model router
+   (billed against the same tokens at Claude's list price), and JQ (kept,
+   overruled, asked, from the JQ log the collector now sends).
+
+**Compare models** puts up to 5 models side by side (table, small charts,
+spend over time). Change `plan.json` when the plan changes.
 
 ## What the page computes
 

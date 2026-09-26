@@ -1,0 +1,5 @@
+{
+  "_note": "What you pay for Claude. The dashboard spreads the monthly price over the period it shows (a month is 30.44 days) and sets it beside Claude's work at pay-as-you-go prices. Change it when the plan changes.",
+  "name": "Max 20x",
+  "monthlyUsd": 200
+}

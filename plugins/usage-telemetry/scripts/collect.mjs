@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Reads what Claude Code's transcripts and the jev-log gained since the last
- * run, turns it into usage events, keeps them in
+ * Reads what Claude Code's transcripts, the jev-log and the JQ log gained
+ * since the last run, turns it into usage events, keeps them in
  * ~/.claude/usage-telemetry/events.jsonl and, when USAGE_INGEST_URL is set,
  * ships them there (the Supabase `claude-usage` function).
  *
@@ -20,7 +20,7 @@
 import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, readdirSync, statSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { eventFromLog, eventsFromTranscript, flushPending, keySnapshot, transcriptOf } from './lib.mjs'
+import { eventFromJq, eventFromLog, eventsFromTranscript, flushPending, jqLogPaths, keySnapshot, transcriptOf } from './lib.mjs'
 import { detectMisses, remember, saveLocalMisses } from './misses.mjs'
 
 const args = new Set(process.argv.slice(2))
@@ -169,6 +169,18 @@ async function main() {
       file.offset = offset
       for (const line of lines) {
         const event = eventFromLog(line, host)
+        if (event) events.push(event)
+      }
+    }
+
+    // Judgement calls and their outcomes (JQ), without the question's words.
+    for (const path of jqLogPaths(env, env.HOME || homedir())) {
+      if (!existsSync(path)) continue
+      const file = (state.files[path] ??= { offset: 0 })
+      const { lines, offset } = newLines(path, file.offset)
+      file.offset = offset
+      for (const line of lines) {
+        const event = eventFromJq(line, host)
         if (event) events.push(event)
       }
     }

@@ -61,7 +61,7 @@ export function turnsFrom(rows) {
         s: prompt.s,
         h: prompt.h ?? '',
         ...(prompt.p ? { p: prompt.p } : {}),
-        cat: prompt.cat ?? (prompt.sl ? 'command' : 'other'),
+        cat: prompt.cat ?? (prompt.sl ? 'command' : null),
         m: mainModelOf(api),
         ms: [...new Set(api.map((r) => r.m).filter(Boolean))],
         // null when no model call in the turn had a price: left out of medians, never $0.
