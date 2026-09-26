@@ -107,6 +107,9 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
     // Everything the model read: fresh input plus cache reads and writes.
     const tokensIn = Number(event.input_tokens ?? 0) + Number(event.cache_read_tokens ?? 0) + Number(event.cache_write_tokens ?? 0)
     if (tokensIn > 0) row.i = tokensIn
+    // Kept apart too, for the cache hit rate (cache reads over everything read).
+    if (Number(event.cache_read_tokens) > 0) row.cr = Number(event.cache_read_tokens)
+    if (Number(event.cache_write_tokens) > 0) row.cw = Number(event.cache_write_tokens)
     if (event.cost_usd !== null && event.cost_usd !== undefined) row.c = Number(event.cost_usd)
     if (event.tool) row.tl = event.tool
     if (event.skill) row.sk = event.skill
@@ -187,9 +190,9 @@ export function buildPayload(events, { source = 'local', now = Date.now(), days 
 
 export function render(payload, generatedAt) {
   const template = readFileSync(join(here, 'dashboard.html'), 'utf8')
-  // The page runs the same arithmetic (checks.mjs) and words (present.mjs) the tests do.
+  // The page runs the same arithmetic (checks.mjs), words (present.mjs) and explorer (explore.mjs) the tests do.
   const inline = (file) => readFileSync(join(here, file), 'utf8').replace(/^import [^\n]*\n/gm, '').replace(/^export /gm, '')
-  const checks = inline('checks.mjs') + '\n' + inline('present.mjs')
+  const checks = inline('checks.mjs') + '\n' + inline('present.mjs') + '\n' + inline('explore.mjs')
   const data = { ...payload, generatedAt: payload.generatedAt ?? (generatedAt ?? new Date()).toISOString() }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
   // Functions, not strings: `$` in the inserted text must stay literal.

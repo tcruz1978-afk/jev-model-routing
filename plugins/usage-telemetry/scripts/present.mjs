@@ -11,7 +11,7 @@
  * terms or statistics jargon. Click-by-click steps ("Show me how") are the
  * only place a value to paste may appear.
  */
-import { DAY, TARGETS, actionsFor, fmtTime, hostMatch, n0, pct, periodFor, periodStart, usd, whenPlain } from './checks.mjs'
+import { DAY, TARGETS, TARGET_NOTES, actionsFor, fmtTime, hostMatch, n0, pct, periodFor, periodStart, usd, whenPlain } from './checks.mjs'
 
 /** Words that must never show in the top block or the action list. */
 export const BANNED = [
@@ -228,6 +228,32 @@ export function checksHtml(rows) {
         '</div>'
       : '') +
     '</li>').join('') + '</ul>'
+}
+
+/** Which of the owner's targets (TARGET_NOTES) each check is held to. */
+const TARGET_OF = { 'jev-deciding': 0, 'jev-picking': 1, skills: 2, landing: 3, router: 4, openrouter: 5, reporting: 7 }
+
+/**
+ * The Health tab: each check full size — its state, figure, what it counts,
+ * the comparison, examples, the target it is held to, and what to do (with
+ * "Show me how" when there are steps). Same rows as checksHtml.
+ */
+export function checkCardsHtml(rows) {
+  return '<div class="hcards">' + rows.map((r) => {
+    const acts = r.state !== 'pass' && r.who && r.who !== 'Nothing' && r.todo && r.todo !== 'Nothing to do.'
+    const target = TARGET_OF[r.id] === undefined ? '' : TARGET_NOTES[TARGET_OF[r.id]]
+    return `<article class="hcard st-${escHtml(r.state)}" id="check-${escHtml(r.id)}">` +
+      `<div class="hc-head"><span class="ico" role="img" aria-label="${escHtml(r.word)}" title="${escHtml(r.word)}">${escHtml(r.icon)}</span>` +
+      `<h3>${escHtml(r.name)}</h3><span class="hc-state">${escHtml(r.word)}</span></div>` +
+      `<p class="hc-figure">${escHtml(r.figure)}</p>` +
+      `<p>${escHtml(r.about)}</p>${r.compare ? `<p class="muted">${escHtml(r.compare)}</p>` : ''}` +
+      (r.examples.length ? '<ul>' + r.examples.map((e) => `<li>${escHtml(e)}</li>`).join('') + '</ul>' : '') +
+      (target ? `<p class="hc-target"><b>Target:</b> ${escHtml(target)}.</p>` : '') +
+      `<div class="hc-todo${acts ? ' act' : ''}"><b>What to do:</b> ${escHtml(acts ? r.todo : r.state === 'pass' ? 'Nothing to do.' : r.todo)}` +
+      (acts ? ` <span class="who who-${escHtml(r.who.toLowerCase())}">${escHtml(r.who)}</span>` : '') +
+      (acts && r.how ? `<details class="how"><summary>Show me how</summary><ol>${r.how.map((x) => `<li>${escHtml(x)}</li>`).join('')}</ol></details>` : '') +
+      '</div></article>'
+  }).join('') + '</div>'
 }
 
 /** Text a reader sees, from generated HTML: tags dropped; "Show me how" steps left out, and closed panels too when `collapsed`. */

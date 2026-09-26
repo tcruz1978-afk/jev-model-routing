@@ -3,7 +3,8 @@
 Shows what the models are doing behind your Claude Code sessions: which model
 served each request and what it cost, every tool, skill, MCP connector and
 subagent call, Jev's skill decisions, and the model router's OpenRouter calls.
-One page leads with what the models did and what it cost, and ends with a health strip.
+One page, tabbed like OpenRouter's Activity page: overview, explore, logs, Jev,
+the router and health.
 
 ## What it records
 
@@ -44,48 +45,63 @@ things per environment:
 
 ## The dashboard
 
-The page leads with **what the models did and what it cost**, for the chosen
-period (24 hours, 7, 30 or 90 days; all machines, cloud or your PC), top to
-bottom:
+One static page (no backend: every row is inlined and filtered in the
+browser) that works like OpenRouter's Activity page. Tabs across the top,
+and in the header on every tab: the period (24h, 7d, 30d, 90d, or custom
+from–to UTC days), the machines (all, cloud, your PC) and a health badge
+("2 need attention") that opens Health. The URL hash holds the tab and
+every choice, so any view can be bookmarked or shared.
 
-1. **Headline numbers**, each with its change on the previous period once
-   that period is collected: Claude work at pay-as-you-go prices, OpenRouter
-   spend (the key's own running total; before the first balance check, the
-   router's logged calls plus the key's growth after it), your requests,
-   model calls, tool calls with failures, and OpenRouter credit left with how
-   long it lasts at the recent spend rate.
-2. **Cost by model**, per day (per hour for 24 hours), stacked bars with a
-   legend and a table version.
-3. **Where the work went**: by skill, by connector or plugin, and by
-   subagent, each with uses, cost, failures and typical time. A Claude model
-   call is charged to the skill active in its turn (typed `/command`, Jev's
-   pick, or the last skill Claude loaded);
-   calls with none show as "no skill", never dropped. A connector gets its
-   share of the Claude reply that asked for it.
-4. **Model × work grid**: which model served which skill (Claude) or task
-   kind (model router), calls and cost per cell.
-5. **Jev**: paid against free by who decided (`jev` and `backup <model>` are
-   paid; `backup openrouter/free`, `backup …:free` and `built-in classifier`
-   are free), with decisions, share, flagged misroutes (each `jev.miss`
-   matched to the decision in the same chat with the same pick, nearest in
-   time), landed rate and typical time; under 10 decisions reads "too few to
-   judge". Also picks per skill, how sure Jev was, and the optional benchmark
-   `~/.claude/usage-telemetry/jev-tiers.json`
+1. **Overview**: metric cards, each with a sparkline and its change on the
+   previous period ("not collected yet" when that period predates
+   collection): Claude work at pay-as-you-go prices, OpenRouter spend (the
+   key's running total), requests, model calls, tokens (fresh in / from
+   cache / out), cache hit rate (cache-read tokens over all input tokens),
+   blended cost per million tokens, tool failures, and OpenRouter credit
+   left with how long it lasts. Click a card to explore it. Then spend over
+   time stacked by model, and top models, skills, connectors and plugins,
+   subagents and chats.
+2. **Explore**: pick a metric (spend, Claude or OpenRouter alone, requests,
+   model calls, tokens in / out / from cache, cache hit rate, cost per
+   million, tool calls, failures, failure rate, time p50 / p90, Jev
+   decisions, Jev misroute rate, events), split it by up to two of model,
+   provider, skill, connector, tool, subagent type, event type, machine,
+   chat, Jev tier, router task and outcome, as stacked bars, lines or dots
+   by hour, day or week, or with no time axis as a ranked list. The ranked
+   table sits under the chart. Filters, saved views (kept in this browser)
+   and "Copy link".
+3. **Logs**: every event, newest first, 100 a page: time, machine, chat,
+   type, name, model, tokens, cost, time taken, result. Filter chips for any
+   dimension, search over names, click a row for every field, download the
+   filtered rows as CSV. No prompt text exists in the data.
+4. **Jev**: decisions over time by who made them, paid against free (`jev`
+   and `backup <model>` are paid; `backup openrouter/free`, `backup …:free`
+   and `built-in classifier` are free) with flagged misroutes, landed rate and
+   typical time, picks per skill, how sure Jev was, and the optional
+   benchmark `~/.claude/usage-telemetry/jev-tiers.json`
    (`{"ranAt", "cases", "tiers": {"jev"|"paid"|"free": {"right", "of"}}}`,
-   `--tiers FILE` to point elsewhere), shown as "not run yet" when absent.
-6. **Model router**: calls, failures or backups and cost per task kind;
-   model asked for against the model that answered.
-7. **Top 10 chats by cost**, and 8. **recent activity** (newest 100, filter
-   by type): time, machine, type, name, model, tokens, cost, time taken,
-   result. No prompt text exists in the data.
-9. **Health strip** at the bottom: the seven checks (Jev deciding, Jev
-   picking right, skills loading, answers landing, the model router,
-   OpenRouter credit, machines reporting) as pills against the owner's
-   targets (approved 2026-09-26), each opening to its detail, with "What to
-   do" beside any check someone has to act on.
+   `--tiers FILE`), shown as "not run yet" when absent.
+5. **Router**: calls, failures or backups and cost per task kind; model
+   asked for against model that answered; spend and calls over time by task.
+6. **Health**: the seven checks full size (Jev deciding, Jev picking right,
+   skills loading, answers landing, the model router, OpenRouter credit,
+   machines reporting) against the owner's targets (approved 2026-09-26),
+   with "What to do", plus tools failing more than 1 in 10 times.
 
-The arithmetic lives in `scripts/checks.mjs` (inlined into the page and
-imported by the tests) and the health strip's words in `scripts/present.mjs`.
+**Click a chart, land in the logs**: a bar, a slice, a point, a legend
+entry or a table row opens Logs filtered to exactly the events behind it
+(its group, its time bucket, and the event types the metric counts).
+
+A Claude model call is charged to the skill active in its turn (typed
+`/command`, Jev's pick, or the last skill Claude loaded); tool calls,
+routed calls and prompts carry the active skill too, so anything can be
+split by skill. Calls with none show as "no skill", never dropped.
+
+The arithmetic lives in `scripts/checks.mjs` (checks and panels) and
+`scripts/explore.mjs` (the grouping engine: an index of every row's key per
+dimension, so filters and group-bys stay fast at 100,000 rows; metrics;
+filters; the URL hash; CSV), the words in `scripts/present.mjs`. All three
+are inlined into the page and imported by the tests.
 
 Ask Claude to "refresh my usage dashboard" (the `usage-dashboard` skill), or
 build it by hand:

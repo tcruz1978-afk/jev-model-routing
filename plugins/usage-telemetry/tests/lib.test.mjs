@@ -543,7 +543,7 @@ test('the page lists the eight approved targets and leads with what the models d
   const html = render(buildPayload(sampleEvents(), { now: END }))
   assert.ok(html.includes('TARGET_NOTES.map'))
   assert.ok(html.includes('firstEventAt'))
-  const order = ['id="kpis"', 'id="costchart"', 'id="w-skill"', 'id="grid"', 'id="jev-tiers"', 'id="r-cat"', 'id="chats"', 'id="feed"', 'id="checks"']
+  const order = ['id="ov-cards"', 'id="ov-chart"', 'id="top-skills"', 'id="ex-chart"', 'id="lg-table"', 'id="jev-tiers"', 'id="r-cat"', 'id="checks"']
   const at = order.map((id) => html.indexOf(id))
   assert.ok(at.every((i) => i > 0), 'every panel is on the page')
   assert.deepEqual([...at].sort((x, y) => x - y), at, 'in the approved order: headline first, health last')
