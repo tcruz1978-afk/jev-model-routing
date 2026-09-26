@@ -44,6 +44,11 @@ things per environment:
 
 ## The dashboard
 
+Opened inside Claude, the page reads the events live from Supabase through
+your Supabase connector (`scripts/live.mjs`) each time it opens, and falls
+back to the copy saved at the last build, with its "as of" time, when it
+can't.
+
 The page leads with **what the models did and what it cost**, for the chosen
 period (24 hours, 7, 30 or 90 days; all machines, cloud or your PC), top to
 bottom:

@@ -695,9 +695,10 @@ test('no jargon: the top block, panels and action list pass the banned-word scan
 
 test('the page scripts compile together: no name declared twice', () => {
   const page = render(mixedBuild())
-  const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
+  const scripts = [...page.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1])
   assert.equal(scripts.length, 2)
-  assert.doesNotThrow(() => new vm.Script(scripts.join('\n;\n')))
+  // The second is a module (it awaits the live rows); compiled here as an async body.
+  assert.doesNotThrow(() => new vm.Script(`${scripts[0]}\n;\nasync function page() {\n${scripts[1]}\n}`))
 })
 
 test('the action list holds only things someone has to do; self-clearing items get one quiet line', async () => {

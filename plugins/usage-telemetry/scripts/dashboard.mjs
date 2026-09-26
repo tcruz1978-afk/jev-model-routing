@@ -10,9 +10,10 @@
  * Input is the collector's ~/.claude/usage-telemetry/events.jsonl by default
  * (`--source local`, this machine only), or a JSON array exported from
  * claude_usage.events (`--source supabase`, every host). The page filters by
- * host and range in the browser, measured back from the build time; nothing
- * is fetched. It offers ranges up to 90 days, so it carries 180 (each range
- * is compared with the one before it).
+ * host and range in the browser. Opened inside Claude, the page reads the
+ * same rows live from Supabase through the viewer's connector (live.mjs) and
+ * keeps this build's DATA as the fallback snapshot. It offers ranges up to
+ * 90 days, so it carries 180 (each range is compared with the one before it).
  *
  * The optional Jev benchmark (`--tiers`, default
  * ~/.claude/usage-telemetry/jev-tiers.json: the same test prompts put to Jev,
@@ -30,9 +31,11 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DAY, attribute, confidenceOf, readTierBenchmark, runChecks, usd } from './checks.mjs'
-import { dedupe } from './lib.mjs'
-import { turnsFrom } from './turns.mjs'
+import { DAY, readTierBenchmark, runChecks, usd } from './checks.mjs'
+import { compact } from './live.mjs'
+
+// The compact rows moved to live.mjs, which the page also runs on live rows.
+export { compact }
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -76,66 +79,6 @@ export function sourceProblem(parsed, source) {
   if (!dated.length) return 'no event carries a timestamp'
   if (source === 'supabase' && !parsed.events.every((e) => e && typeof e.id === 'string' && typeof e.kind === 'string')) return 'the Supabase export is missing id or kind on some rows'
   return null
-}
-
-/**
- * The compact rows the page carries: short keys, sessions as indexes, the
- * `data` payload only where a view reads it. Turns (one prompt and all the
- * work until the next one, see turns.mjs) are computed here, once.
- */
-export function compact(events, { days = 180, now = Date.now() } = {}) {
-  const since = now - days * DAY
-  const sessions = []
-  const sessionIndex = new Map()
-  const rows = []
-  for (const event of dedupe(events)) {
-    const t = event.ts ? Date.parse(event.ts) : NaN
-    if (!Number.isFinite(t) || t < since || t > now) continue
-    let s = -1
-    if (event.session) {
-      if (!sessionIndex.has(event.session)) {
-        sessionIndex.set(event.session, sessions.length)
-        sessions.push(event.session)
-      }
-      s = sessionIndex.get(event.session)
-    }
-    const row = { k: event.kind, t, s, h: event.host ?? '' }
-    if (event.project) row.p = event.project
-    if (event.agent) row.a = event.agent
-    if (event.model) row.m = event.model
-    if (event.output_tokens) row.o = Number(event.output_tokens)
-    // Everything the model read: fresh input plus cache reads and writes.
-    const tokensIn = Number(event.input_tokens ?? 0) + Number(event.cache_read_tokens ?? 0) + Number(event.cache_write_tokens ?? 0)
-    if (tokensIn > 0) row.i = tokensIn
-    if (event.cost_usd !== null && event.cost_usd !== undefined) row.c = Number(event.cost_usd)
-    if (event.tool) row.tl = event.tool
-    if (event.skill) row.sk = event.skill
-    if (event.mcp_server) row.mc = event.mcp_server
-    if (event.ok !== null && event.ok !== undefined) row.ok = event.ok
-    const data = event.data ?? {}
-    if (event.kind === 'jev.decision') {
-      row.d = { decidedBy: data.decidedBy ?? null, conf: confidenceOf(event.skill ?? null, data), wideMs: data.wideMs ?? null, rerankMs: data.rerankMs ?? null }
-      if (data.injected) row.d.injected = true
-    } else if (event.kind === 'router.call') {
-      row.d = { category: data.category ?? null, fallbackFrom: data.fallbackFrom ?? null, error: data.error ?? null, requested: data.requested ?? null, ms: data.ms ?? null }
-    } else if (event.kind === 'tool') {
-      if (Number.isFinite(data.ms)) row.ms = data.ms
-      if (data.subagent_type) row.st = data.subagent_type
-      // A background subagent's tool call returns at once: its time is not how long it ran.
-      if (data.subagent_type && data.background) row.bg = 1
-    } else if (event.kind === 'openrouter.key' || event.kind === 'jev.miss') {
-      row.d = data
-    } else if (event.kind === 'prompt') {
-      if (data.slash) row.sl = 1
-      if (data.category) row.cat = data.category
-      if (data.correction) row.cx = 1
-    }
-    rows.push(row)
-  }
-  rows.sort((a, b) => a.t - b.t)
-  // Which skill each model call worked for, and which reply asked for each tool (checks.mjs).
-  attribute(rows)
-  return { sessions, rows, turns: turnsFrom(rows) }
 }
 
 /** Where the Claude prices came from, for the page's provenance note. */
@@ -187,18 +130,19 @@ export function buildPayload(events, { source = 'local', now = Date.now(), days 
 
 export function render(payload, generatedAt) {
   const template = readFileSync(join(here, 'dashboard.html'), 'utf8')
-  // The page runs the same arithmetic (checks.mjs) and words (present.mjs) the tests do.
-  const inline = (file) => readFileSync(join(here, file), 'utf8').replace(/^import [^\n]*\n/gm, '').replace(/^export /gm, '')
-  const checks = inline('checks.mjs') + '\n' + inline('present.mjs')
+  // The page runs the same arithmetic (checks.mjs), live loader (turns.mjs, live.mjs) and words (present.mjs) the tests do.
+  const inline = (file) => readFileSync(join(here, file), 'utf8').replace(/^import [^\n]*\n/gm, '').replace(/^export \{[^}]*\}[^\n]*\n/gm, '').replace(/^export /gm, '')
+  const checks = ['checks.mjs', 'turns.mjs', 'live.mjs', 'present.mjs'].map(inline).join('\n')
   const data = { ...payload, generatedAt: payload.generatedAt ?? (generatedAt ?? new Date()).toISOString() }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
   // Functions, not strings: `$` in the inserted text must stay literal.
   return template.replace('/*__CHECKS__*/', () => checks.replace(/<\/script/gi, '<\\/script')).replace('/*__DATA__*/null', () => json)
 }
 
-/** The DATA object of a built page (brace-matched, strings respected), or throws. */
+/** The DATA object a built page inlines (brace-matched, strings respected), or throws. */
 export function extractData(html) {
-  const marker = 'const DATA = '
+  // A live page inlines its build as SNAPSHOT; older pages as DATA.
+  const marker = html.includes('const SNAPSHOT = ') ? 'const SNAPSHOT = ' : 'const DATA = '
   const start = html.indexOf(marker)
   if (start < 0) throw new Error('no DATA in the page')
   let i = start + marker.length

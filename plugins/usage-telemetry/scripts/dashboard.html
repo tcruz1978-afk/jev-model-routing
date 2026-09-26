@@ -254,8 +254,10 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
 <script>
 /*__CHECKS__*/
 </script>
-<script>
-const DATA = /*__DATA__*/null;
+<script type="module">
+// Live rows from Supabase when the viewer's connector answers, else the inlined snapshot (live.mjs).
+const SNAPSHOT = /*__DATA__*/null;
+const DATA = await liveData(SNAPSHOT);
 const END = Date.parse(DATA.generatedAt);
 const SINCE = DATA.firstEventAt ? Date.parse(DATA.firstEventAt) : null;
 let host = 'all', days = 7, feedKind = 'all';
