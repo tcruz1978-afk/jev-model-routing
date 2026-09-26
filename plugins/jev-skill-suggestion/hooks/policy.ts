@@ -1462,6 +1462,26 @@ export function readRoute(responseText: string): Route | null {
   return { needsTools: yesNoOf(answers['route::needs_tools']), category: choice('route::category', ROUTE_CATEGORIES), tier: choice('route::tier', ROUTE_TIERS) }
 }
 
+/**
+ * The Claude model a helper agent (a subagent Claude starts) runs on, from
+ * Jev's answer about the agent's task: haiku for easy or quick work, sonnet
+ * for ordinary work, opus for hard work. Null when Jev gave no tier, so the
+ * agent keeps its own or the parent's model.
+ */
+export const AGENT_MODELS: Record<string, string> = { cheap: 'haiku', balanced: 'sonnet', quality: 'opus' }
+export function agentModelFor(route: Route | null): { model: string; reason: string } | null {
+  if (!route?.tier || !(route.tier in AGENT_MODELS)) return null
+  // A quick task is haiku's whatever tier was given, unless Jev called it hard.
+  const tier = route.category === 'quick' && route.tier !== 'quality' ? 'cheap' : route.tier
+  return { model: AGENT_MODELS[tier] as string, reason: `${route.category ?? 'task'} / ${route.tier}` }
+}
+
+/** The questions for a helper agent's task: what kind it is and how much model it needs. */
+export function agentQuestions(provider: Provider): Record<string, unknown> {
+  const all = routeQuestions(provider)
+  return { 'route::category': all['route::category'], 'route::tier': all['route::tier'] }
+}
+
 /** A prompt the user sends to Claude on purpose: `claude:` first. */
 export const FOR_CLAUDE = /^\s*claude:/i
 

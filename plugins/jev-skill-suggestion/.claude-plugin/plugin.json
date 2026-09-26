@@ -1,6 +1,6 @@
 {
   "name": "jev-skill-suggestion",
-  "version": "0.5.7",
+  "version": "0.6.0",
   "description": "Keeps the skill listing out of the context window and lets Jev, TypeSafe's decision model, pick at most one skill per prompt. Jev is reached through OpenRouter with just OPENROUTER_API_KEY set (or TypeSafe or the Vercel AI Gateway directly); an OpenRouter chat model is the backup and the engine's built-in classifier the last resort. Also ships a model-router skill: Jev decides what kind of task a prompt is and how much model it needs, and OpenRouter runs it. Based on the jev-skill-suggestion mod from claude-code-templates.",
   "author": {
     "name": "tcruz1978-afk",
@@ -187,6 +187,12 @@
       "title": "Comparison: share without the router",
       "description": "Share of sessions (0 to 1) where Jev picks skills but the router answers nothing; 0 turns this group off",
       "default": 0
+    },
+    "agentModels": {
+      "type": "boolean",
+      "title": "Pick helper agents' Claude model",
+      "description": "When Claude starts a helper agent without naming a model, Jev reads its task and runs it on haiku (easy), sonnet (ordinary) or opus (hard); off keeps the agent's own or the parent's model",
+      "default": true
     }
   }
 }

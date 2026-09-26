@@ -27,6 +27,12 @@ When Jev is sure a prompt needs no tools (at least 80%), no skill was picked, th
 - `offload: false` turns this off; `offloadTimeoutMs` (default 60000) caps how long the router may take.
 - 1 session in 10 runs without Jev or the router (`compareOff`, default 0.1), so the dashboard can compare sessions with and without them; the log says so when a session is in that group. `compareNoRouter` (default 0) holds out a share with Jev but no router. Set both to 0 to turn the comparison off.
 
+## Helper agents get a Claude model fit for the job
+
+When Claude starts a helper agent (the Agent tool) without naming a model, Jev reads the agent's task and runs it on **haiku** (easy or quick work), **sonnet** (ordinary work) or **opus** (hard work). An agent given a model on purpose, a fork, and the comparison's "off" group keep their own or the parent's model; so does any agent when Jev can't answer. The log shows each pick (`helper agent "…" runs on haiku (quick / cheap)`). `agentModels: false` turns this off.
+
+The model router does the same for work it sends to your Claude plan: `claude -p --model haiku|sonnet|opus`, from the Anthropic model on the route Jev picked.
+
 ## Quick start
 
 Five steps, in this order. Each one is checkable before the next.
