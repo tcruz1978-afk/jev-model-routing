@@ -13,6 +13,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dedupe } from './lib.mjs'
+import { turnsFrom } from './turns.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -34,7 +35,9 @@ export function readEvents(text) {
 
 /**
  * The compact rows the page carries: short keys, sessions as indexes, the
- * `data` payload only where a view reads it.
+ * `data` payload only where a view reads it. Turns (one prompt and all the
+ * work until the next one, see turns.mjs) are computed here, once, so the
+ * page only filters them by time and host and never re-derives them.
  */
 export function compact(events, { days = 90, now = Date.now() } = {}) {
   const since = now - days * 86400000
@@ -80,7 +83,7 @@ export function compact(events, { days = 90, now = Date.now() } = {}) {
     rows.push(row)
   }
   rows.sort((a, b) => a.t - b.t)
-  return { sessions, rows }
+  return { sessions, rows, turns: turnsFrom(rows) }
 }
 
 export function render(payload, generatedAt = new Date()) {

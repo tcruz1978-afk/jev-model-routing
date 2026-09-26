@@ -105,3 +105,61 @@ test('the dashboard carries compact rows and no raw text', () => {
   assert.equal(readEvents('{"id":"a"}\n{bad\n{"id":"b"}\n').length, 2)
   assert.equal(readEvents('[{"id":"a"}]').length, 1)
 })
+
+test('turnsFrom splits a session at each prompt and sums the work in between', async () => {
+  const { turnsFrom } = await import('../scripts/turns.mjs')
+  const rows = [
+    { k: 'prompt', t: 1000, s: 0, h: 'cloud', a: 'main', cat: 'fix' },
+    { k: 'api', t: 1100, s: 0, h: 'cloud', a: 'main', m: 'claude-opus-5-5', i: 10, o: 50, c: 0.5 },
+    { k: 'api', t: 1200, s: 0, h: 'cloud', a: 'main', m: 'claude-sonnet-4-6', i: 10, o: 20, c: 0.1 },
+    { k: 'tool', t: 1300, s: 0, h: 'cloud', a: 'main', tl: 'Agent', ok: true },
+    { k: 'api', t: 1400, s: 0, h: 'cloud', a: 'subagent:Explore', m: 'claude-haiku-4-5', o: 900, c: 0.01 },
+    { k: 'tool', t: 1500, s: 0, h: 'cloud', a: 'subagent:Explore', tl: 'Bash', ok: false },
+    { k: 'tool', t: 1600, s: 0, h: 'cloud', a: 'main', tl: 'Skill', sk: 'pdf', ok: true },
+    { k: 'router.call', t: 1700, s: 0, h: 'cloud', m: 'z-ai/glm', c: 0.02 },
+    { k: 'prompt', t: 5000, s: 0, h: 'cloud', a: 'main', cat: 'fix', cx: 1 },
+    { k: 'api', t: 5200, s: 0, h: 'cloud', a: 'main', m: 'claude-opus-5-5', o: 5, c: 0.2 },
+    { k: 'prompt', t: 9000, s: 0, h: 'cloud', a: 'main', cat: 'reply' },
+    // another session, interleaved in time; its lone turn has no outcome yet
+    { k: 'api', t: 900, s: 1, h: 'local:mac', a: 'main', m: 'claude-opus-5-5', o: 1 },
+    { k: 'prompt', t: 1050, s: 1, h: 'local:mac', a: 'main', sl: 1 },
+    { k: 'api', t: 1150, s: 1, h: 'local:mac', a: 'main', m: 'claude-opus-5-5', o: 3, c: 0.03 },
+    { k: 'api', t: 50, s: -1, h: 'cloud', m: 'claude-opus-5-5', o: 3 },
+  ]
+  const turns = turnsFrom(rows)
+  assert.equal(turns.length, 4)
+  const [first, other, second, last] = turns
+  assert.equal(first.cat, 'fix')
+  assert.equal(first.m, 'claude-opus-5-5') // most main-agent output; the subagent's Haiku output does not count
+  assert.deepEqual(first.ms.sort(), ['claude-haiku-4-5', 'claude-opus-5-5', 'claude-sonnet-4-6'])
+  assert.equal(first.c, 0.63)
+  assert.equal(first.tk, 10 + 50 + 10 + 20 + 900)
+  assert.equal(first.dur, 700)
+  assert.equal(first.tl, 3)
+  assert.equal(first.tf, 1)
+  assert.equal(first.sa, 1)
+  assert.deepEqual(first.sk, ['pdf'])
+  assert.equal(first.land, false) // the next prompt pushed back
+  assert.equal(second.land, true)
+  assert.equal(second.c, 0.2)
+  assert.equal(last.land, null) // last turn of the session: unknown
+  assert.equal(last.m, null)
+  assert.equal(last.dur, 0)
+  assert.equal(other.h, 'local:mac')
+  assert.equal(other.cat, 'command')
+  assert.equal(other.land, null)
+  assert.equal(other.c, 0.03)
+})
+
+test('compact carries turns built from its own rows', () => {
+  const ev = (o) => ({ host: 'cloud', session: 'a', agent: 'main', ...o })
+  const events = [
+    ev({ id: 'p1', kind: 'prompt', ts: '2026-09-26T10:00:00Z', data: { category: 'build' } }),
+    ev({ id: 'a1', kind: 'api', ts: '2026-09-26T10:00:05Z', model: 'claude-opus-5-5', output_tokens: 7, cost_usd: 0.1 }),
+    ev({ id: 'p2', kind: 'prompt', ts: '2026-09-26T10:05:00Z', data: { category: 'fix', correction: true } }),
+  ]
+  const { turns } = compact(events, { now: Date.parse('2026-09-26T12:00:00Z') })
+  assert.equal(turns.length, 2)
+  assert.deepEqual([turns[0].cat, turns[0].m, turns[0].land, turns[0].dur], ['build', 'claude-opus-5-5', false, 5000])
+  assert.equal(turns[1].land, null)
+})

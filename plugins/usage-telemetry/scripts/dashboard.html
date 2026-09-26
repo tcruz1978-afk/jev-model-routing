@@ -9,21 +9,21 @@
   --bg: #f6f7f9; --panel: #ffffff; --ink: #16181d; --muted: #5d6573; --line: #e3e6eb;
   --accent: #3b5bdb; --good: #2b8a3e; --warn: #c77700; --bad: #c92a2a;
   --good-bg: #ebf7ee; --warn-bg: #fff4e0; --bad-bg: #fdecec;
-  --s1: #3b5bdb; --s2: #0c8599; --s3: #e8590c; --s4: #9c36b5; --s5: #5c940d; --s6: #868e96;
+  --s1: #3b5bdb; --s2: #0c8599; --s3: #e8590c; --s4: #9c36b5; --s5: #5c940d; --s6: #868e96; --s7: #c2255c; --s8: #b08900;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa3b2; --line: #2a2f38;
     --accent: #748ffc; --good: #69db7c; --warn: #ffc078; --bad: #ff8787;
     --good-bg: #16261b; --warn-bg: #2b2112; --bad-bg: #2e1616;
-    --s1: #748ffc; --s2: #3bc9db; --s3: #ff922b; --s4: #da77f2; --s5: #94d82d; --s6: #adb5bd;
+    --s1: #748ffc; --s2: #3bc9db; --s3: #ff922b; --s4: #da77f2; --s5: #94d82d; --s6: #adb5bd; --s7: #f06595; --s8: #ffd43b;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa3b2; --line: #2a2f38;
   --accent: #748ffc; --good: #69db7c; --warn: #ffc078; --bad: #ff8787;
   --good-bg: #16261b; --warn-bg: #2b2112; --bad-bg: #2e1616;
-  --s1: #748ffc; --s2: #3bc9db; --s3: #ff922b; --s4: #da77f2; --s5: #94d82d; --s6: #adb5bd;
+  --s1: #748ffc; --s2: #3bc9db; --s3: #ff922b; --s4: #da77f2; --s5: #94d82d; --s6: #adb5bd; --s7: #f06595; --s8: #ffd43b;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -70,6 +70,15 @@ tr:last-child td { border-bottom: 0; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 svg text { fill: var(--muted); font-size: 10.5px; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 0; white-space: normal; }
+.h3 { font-size: 13px; margin: 18px 0 6px; }
+.grid2.inner { margin-top: 4px; }
+.grid2.inner > div { min-width: 0; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.charts > div { min-width: 0; }
+.lbar { display: inline-block; width: 60px; height: 6px; border-radius: 3px; background: var(--line); vertical-align: middle; margin-left: 6px; overflow: hidden; }
+.lbar i { display: block; height: 100%; }
+tr.grp td { font-weight: 600; border-top: 1px solid var(--line); }
+td.sub1 { color: var(--muted); padding-left: 18px; }
 footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 </style>
@@ -104,6 +113,26 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
     <p class="note">Claude costs are what the same tokens cost at API list prices (on a subscription this is not a bill). OpenRouter costs are what OpenRouter charged.</p>
     <div class="scroll"><table id="models"></table></div>
     <div id="daily" style="margin-top:14px"></div>
+  </section>
+
+  <section>
+    <h2>How the models are doing</h2>
+    <p class="note">One turn is one message you sent plus all the work until your next one. <strong>Landed</strong> means your next message didn't push back ("no", "still broken", "you missed…"): a heuristic read from your wording, not a quality grade. A session's last turn has no outcome yet.</p>
+    <div id="catbars"></div>
+    <h3 class="h3">By model and kind of request</h3>
+    <div class="scroll"><table id="modelcat"></table></div>
+    <h3 class="h3">Trend per <span id="bucketword">day</span></h3>
+    <div id="trend"></div>
+    <div class="grid2 inner">
+      <div>
+        <h3 class="h3">Jev (skill picker) per <span class="bucketword">day</span></h3>
+        <div class="scroll"><table id="jevtrend"></table></div>
+      </div>
+      <div>
+        <h3 class="h3">Model router by task (OpenRouter)</h3>
+        <div class="scroll"><table id="routercat"></table></div>
+      </div>
+    </div>
   </section>
 
   <div class="grid2" style="margin-top:14px">
@@ -273,10 +302,20 @@ function render() {
     i: sum(rs, (r) => r.i), o: sum(rs, (r) => r.o), cr: sum(rs, (r) => r.cr), cw: sum(rs, (r) => r.cw), c: sum(rs, (r) => r.c),
     who: [...new Set(rs.map((r) => (r.k === 'router.call' ? 'model-router' : r.a === 'main' ? 'main' : (r.a || '').replace('subagent:', ''))))].join(', '),
   })).sort((a, b) => b.c - a.c || b.calls - a.calls);
+  // Jev and its backup deciders are models too: one call per decision, no token log.
+  const deciders = [...group(decisions.filter((r) => { const b = r.d?.decidedBy || ''; return b === 'jev' || b.startsWith('backup'); }),
+    (r) => (r.d?.decidedBy === 'jev' ? 'jev' : 'backup') + '\u0000' + (r.m || (r.d?.decidedBy === 'jev' ? 'jev (OpenRouter)' : 'backup decider'))).entries()].map(([key, rs]) => {
+    const [role, m] = key.split('\u0000'), isJev = role === 'jev';
+    const costs = rs.filter((r) => Number.isFinite(r.c));
+    return { m, via: providerLabel(rs[0].d?.provider) + (isJev ? ' · Jev' : ' · Jev backup'), who: 'skill picker', calls: rs.length, c: costs.length ? sum(costs, (r) => r.c) : null, dec: true };
+  }).sort((a, b) => b.calls - a.calls);
   const maxC = Math.max(...models.map((x) => x.c), 1e-9);
   table('models', [{ label: 'Model' }, { label: 'Via' }, { label: 'Used by' }, { label: 'Calls', num: 1 }, { label: 'Input', num: 1 }, { label: 'Output', num: 1 }, { label: 'Cache read', num: 1 }, { label: 'Cache write', num: 1 }, { label: 'Cost', num: 1 }, { label: '' }],
-    models.map((x) => [esc(shortModel(x.m)), esc(x.via), esc(x.who), n0(x.calls), tok(x.i), tok(x.o), tok(x.cr), tok(x.cw), usd(x.c), `<div class="bar" style="width:${Math.max(2, (80 * x.c) / maxC)}px"></div>`]));
+    [...models, ...deciders].map((x) => x.dec
+      ? [esc(x.m), esc(x.via), esc(x.who), n0(x.calls), '—', '—', '—', '—', usd(x.c), '']
+      : [esc(shortModel(x.m)), esc(x.via), esc(x.who), n0(x.calls), tok(x.i), tok(x.o), tok(x.cr), tok(x.cw), usd(x.c), `<div class="bar" style="width:${Math.max(2, (80 * x.c) / maxC)}px"></div>`]));
   daily(api.concat(router));
+  trends(decisions, router);
 
   // Skills
   const decidedSessions = new Set(decisions.map((r) => r.s));
@@ -363,6 +402,135 @@ function daily(rows) {
     if (dayKeys.length <= 14 || i % Math.ceil(dayKeys.length / 10) === 0) svg += `<text x="${x}" y="${H + 14}">${d.slice(5)}</text>`;
   });
   el.innerHTML = '<div class="note" style="margin:0 0 6px">Cost per day</div>' + svg + '</svg><div class="legend">' + series.map((m, j) => `<span><i style="background:${color(j)}"></i>${esc(m === 'other' ? 'other' : shortModel(m))}</span>`).join('') + '</div>';
+}
+
+const providerLabel = (p) => (!p || p === 'openrouter' ? 'OpenRouter' : p === 'typesafe' ? 'TypeSafe' : String(p));
+const DAY = 86400000;
+const CAT_LABEL = { fix: 'fix', review: 'review', ship: 'ship', setup: 'setup', design: 'design', data: 'data', build: 'build', writing: 'writing', research: 'research', reply: 'short reply', other: 'other', command: '/command' };
+const CAT_SERIES = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s7', '--s8'];
+const catLabel = (c) => CAT_LABEL[c] || String(c || 'other');
+
+/** Day buckets for up to a month of data, week buckets (from Monday, UTC) beyond. */
+function bucketing(times) {
+  const lo = Math.min(...times), hi = Math.max(...times);
+  const weekly = times.length > 0 && (days > 30 || (days === 0 && hi - lo > 31 * DAY));
+  const keyOf = (t) => {
+    const d = new Date(t); d.setUTCHours(0, 0, 0, 0);
+    if (weekly) d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const keys = [];
+  if (times.length) for (let t = Date.parse(keyOf(lo)); t <= hi; t += weekly ? 7 * DAY : DAY) keys.push(keyOf(t));
+  return { weekly, keyOf, keys, word: weekly ? 'week' : 'day' };
+}
+
+function stackedBars(keys, series, stacks, fmt, label, colorOf = (m, j) => color(j)) {
+  const max = Math.max(...stacks.map((s) => Object.values(s).reduce((a, b) => a + b, 0)), 1e-9);
+  const W = Math.max(320, Math.min(1100, keys.length * 36)), H = 150, pad = 26, slot = (W - pad) / keys.length, bw = Math.max(3, Math.min(26, slot - 6));
+  let svg = `<svg viewBox="0 0 ${W} ${H + 20}" width="${W}" style="max-width:100%;height:auto;display:block" role="img" aria-label="${esc(label)}">`;
+  svg += `<text x="0" y="10">${esc(fmt(max))}</text><line x1="${pad}" x2="${W}" y1="${H}" y2="${H}" stroke="var(--line)"/>`;
+  keys.forEach((k, i) => {
+    let y = H; const x = pad + i * slot + (slot - bw) / 2;
+    series.forEach((m, j) => { const v = stacks[i][m] || 0; if (!v) return; const h = ((H - 16) * v) / max; y -= h; svg += `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(h, 1)}" fill="${colorOf(m, j)}"><title>${esc(k)} · ${esc(m)}: ${esc(fmt(v))}</title></rect>`; });
+    if (keys.length <= 14 || i % Math.ceil(keys.length / 10) === 0) svg += `<text x="${x}" y="${H + 14}">${esc(k.slice(5))}</text>`;
+  });
+  return svg + '</svg><div class="legend">' + series.map((m, j) => `<span><i style="background:${colorOf(m, j)}"></i>${esc(m)}</span>`).join('') + '</div>';
+}
+
+/** Lines over buckets; a null value is a gap (no data that bucket), drawn as a lone dot when isolated. */
+function lineChart(keys, lines, fmt, fixedMax, label) {
+  const vals = lines.flatMap((l) => l.values).filter((v) => v !== null);
+  const max = fixedMax ?? Math.max(...vals, 1e-9);
+  const W = 520, H = 160, pad = 40, top = 8, right = 18;
+  const x = (i) => pad + (keys.length === 1 ? (W - pad) / 2 : (i * (W - pad - right)) / (keys.length - 1));
+  const y = (v) => top + (H - top) * (1 - v / max);
+  let svg = `<svg viewBox="0 0 ${W} ${H + 20}" style="width:100%;height:auto;display:block" role="img" aria-label="${esc(label)}">`;
+  for (const f of [0, 0.5, 1]) svg += `<line x1="${pad}" x2="${W}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="var(--line)"${f ? ' stroke-dasharray="3 3"' : ''}/><text x="0" y="${y(max * f) + 4}">${esc(fmt(max * f))}</text>`;
+  lines.forEach((l, j) => {
+    let d = '';
+    l.values.forEach((v, i) => { if (v === null) return; d += (i > 0 && l.values[i - 1] !== null ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1); });
+    svg += `<path d="${d}" fill="none" stroke="${color(j)}" stroke-width="${j ? 1.6 : 2.4}"/>`;
+    l.values.forEach((v, i) => { if (v !== null) svg += `<circle cx="${x(i)}" cy="${y(v)}" r="${j ? 2.4 : 3}" fill="${color(j)}"><title>${esc(keys[i])} · ${esc(l.name)}: ${esc(fmt(v))}${l.n ? ' (' + n0(l.n[i]) + ' turns)' : ''}</title></circle>`; });
+  });
+  const every = Math.ceil(keys.length / 8);
+  keys.forEach((k, i) => { if (i % every === 0 || i === keys.length - 1) svg += `<text x="${x(i)}" y="${H + 16}" text-anchor="${i === keys.length - 1 && keys.length > 1 ? 'end' : 'middle'}">${esc(k.slice(5))}</text>`; });
+  return svg + '</svg>';
+}
+
+const landRate = (ts) => { const known = ts.filter((t) => t.land !== null); return known.length ? known.filter((t) => t.land).length / known.length : null; };
+const landCell = (ts) => {
+  const known = ts.filter((t) => t.land !== null), r = landRate(ts);
+  if (r === null) return '<span class="pill">no outcome yet</span>';
+  const tone = r >= 0.8 ? 'good' : r >= 0.6 ? 'warn' : 'bad';
+  return `${Math.round(r * 100)}% <span class="lbar" title="${n0(known.filter((t) => t.land).length)} of ${n0(known.length)}"><i style="width:${Math.round(r * 100)}%;background:var(--${tone})"></i></span>`;
+};
+
+function trends(decisions, router) {
+  const since = days ? Date.now() - days * DAY : 0;
+  const turns = (DATA.turns || []).filter((r) => r.t >= since && (host === 'all' || (host === 'cloud' ? r.h === 'cloud' : r.h.startsWith('local'))));
+  const B = bucketing([...turns.map((r) => r.t), ...decisions.map((r) => r.t)]);
+  for (const el of document.querySelectorAll('#bucketword, .bucketword')) el.textContent = B.word;
+
+  // Turns per kind of request over time: top seven kinds, the rest together.
+  const catCount = new Map();
+  for (const t of turns) catCount.set(t.cat, (catCount.get(t.cat) || 0) + 1);
+  const topCats = [...catCount.entries()].sort((a, b) => b[1] - a[1]).slice(0, 7).map(([c]) => c);
+  const seriesOf = (c) => (topCats.includes(c) ? catLabel(c) : 'everything else');
+  const series = [...topCats.map(catLabel), ...(catCount.size > topCats.length ? ['everything else'] : [])];
+  const byBucket = group(turns, (t) => B.keyOf(t.t));
+  const stacks = B.keys.map((k) => { const s = {}; for (const t of byBucket.get(k) || []) s[seriesOf(t.cat)] = (s[seriesOf(t.cat)] || 0) + 1; return s; });
+  document.getElementById('catbars').innerHTML = turns.length
+    ? `<div class="note" style="margin:0 0 6px">Turns per ${B.word}, by kind of request</div>` + stackedBars(B.keys, series, stacks, (v) => n0(Math.round(v)), 'Turns by kind of request', (m, j) => (m === 'everything else' ? 'var(--s6)' : `var(${CAT_SERIES[j % CAT_SERIES.length]})`))
+    : '<p class="empty">No turns in this range. Prompts are counted from the updated collector on (run <code>collect.mjs --rescan</code> once).</p>';
+
+  // Model x kind of request.
+  const modelled = turns.filter((t) => t.m);
+  const byModel = [...group(modelled, 'm').entries()].sort((a, b) => b[1].length - a[1].length);
+  const tableRows = [];
+  const cells = (label, ts, cls) => {
+    const tools = sum(ts, (t) => t.tl);
+    return [label, n0(ts.length), landCell(ts), ms(median(ts.map((t) => t.dur))), usd(median(ts.map((t) => t.c))), (tools / ts.length).toFixed(1), tools ? pct(sum(ts, (t) => t.tf), tools) : '—'].concat([cls]);
+  };
+  for (const [m, ts] of byModel) {
+    tableRows.push(cells(`${esc(shortModel(m))} <span class="pill">all</span>`, ts, 'grp'));
+    for (const [c, cs] of [...group(ts, 'cat').entries()].sort((a, b) => b[1].length - a[1].length)) tableRows.push(cells(esc(catLabel(c)), cs, 'sub'));
+  }
+  const node = document.getElementById('modelcat');
+  const head = ['Model / kind', 'Turns', 'Landed', 'Median time', 'Median cost', 'Tools per turn', 'Tool failures'];
+  node.innerHTML = tableRows.length
+    ? '<thead><tr>' + head.map((h, i) => `<th class="${i ? 'num' : ''}">${esc(h)}</th>`).join('') + '</tr></thead><tbody>' +
+      tableRows.map((r) => `<tr class="${r[7] === 'grp' ? 'grp' : ''}">` + r.slice(0, 7).map((c, i) => `<td class="${i ? 'num' : r[7] === 'sub' ? 'sub1' : ''}">${c}</td>`).join('') + '</tr>').join('') + '</tbody>'
+    : `<tbody><tr><td class="empty">${esc(turns.length ? 'No turn in this range reached a model yet.' : 'No turns in this range.')}</td></tr></tbody>`;
+
+  // Trend lines: landed % and median cost per bucket, overall and per main model.
+  const el = document.getElementById('trend');
+  if (turns.length < 5) {
+    el.innerHTML = `<p class="empty">${n0(turns.length)} turn${turns.length === 1 ? '' : 's'} in this range. A trend needs at least 5; widen the range or come back after more work.</p>`;
+  } else if (B.keys.length < 2) {
+    el.innerHTML = `<p class="empty">All ${n0(turns.length)} turns are from one ${B.word}, so there is no trend yet: landed ${esc(landRate(turns) === null ? '—' : Math.round(landRate(turns) * 100) + '%')}, median cost ${usd(median(turns.map((t) => t.c)))} per turn. Lines appear from the second ${B.word}.</p>`;
+  } else {
+    const who = [['all turns', turns], ...(byModel.length > 1 ? byModel.slice(0, 5).map(([m, ts]) => [shortModel(m), ts]) : [])];
+    const linesOf = (f) => who.map(([name, ts]) => { const g = group(ts, (t) => B.keyOf(t.t)); return { name, values: B.keys.map((k) => (g.get(k) ? f(g.get(k)) : null)), n: B.keys.map((k) => (g.get(k) || []).length) }; });
+    const land = linesOf(landRate);
+    const cost = linesOf((ts) => median(ts.map((t) => t.c)));
+    const known = turns.filter((t) => t.land !== null).length;
+    el.innerHTML = '<div class="charts"><div><div class="note" style="margin:0 0 6px">Landed % per ' + B.word + ` (${n0(known)} turns with an outcome)</div>` +
+      (known ? lineChart(B.keys, land, (v) => Math.round(v * 100) + '%', 1, 'Landed percent over time') : '<p class="empty">No turn has an outcome yet.</p>') +
+      '</div><div><div class="note" style="margin:0 0 6px">Median cost per turn per ' + B.word + '</div>' + lineChart(B.keys, cost, usd, null, 'Median cost per turn over time') + '</div></div>' +
+      '<div class="legend">' + who.map(([name], j) => `<span><i style="background:${color(j)}"></i>${esc(name)}</span>`).join('') + '</div>';
+  }
+
+  // Jev per bucket.
+  const jb = group(decisions, (r) => B.keyOf(r.t));
+  table('jevtrend', [{ label: B.weekly ? 'Week of' : 'Day' }, { label: 'Decisions', num: 1 }, { label: 'Picked a skill', num: 1 }, { label: 'By Jev', num: 1 }, { label: 'Median time', num: 1 }],
+    B.keys.filter((k) => jb.has(k)).reverse().slice(0, 30).map((k) => { const rs = jb.get(k); return [esc(k), n0(rs.length), pct(rs.filter((r) => r.sk).length, rs.length), pct(rs.filter((r) => r.d?.decidedBy === 'jev').length, rs.length), ms(median(rs.map((r) => (r.d?.wideMs || 0) + (r.d?.rerankMs || 0))))]; }),
+    'No Jev decisions in this range.');
+
+  // Router: task x model.
+  const rc = [...group(router, (r) => (r.d?.category || '—') + '\u0000' + (r.m || '—')).entries()].map(([k, rs]) => { const [c, m] = k.split('\u0000'); return { c, m, rs }; }).sort((a, b) => b.rs.length - a.rs.length);
+  table('routercat', [{ label: 'Task' }, { label: 'Model' }, { label: 'Calls', num: 1 }, { label: 'OK', num: 1 }, { label: 'Fallback', num: 1 }, { label: 'Truncated', num: 1 }, { label: 'Median time', num: 1 }, { label: 'Avg cost', num: 1 }],
+    rc.map(({ c, m, rs }) => { const priced = rs.filter((r) => Number.isFinite(r.c)); return [esc(c.replace('_', ' ')), esc(m), n0(rs.length), pct(rs.filter((r) => r.ok !== false).length, rs.length), pct(rs.filter((r) => r.d?.fallbackFrom).length, rs.length), pct(rs.filter((r) => r.d?.truncated).length, rs.length), ms(median(rs.map((r) => r.d?.ms))), priced.length ? usd(sum(priced, (r) => r.c) / priced.length) : '—']; }),
+    'No routed calls in this range.');
 }
 
 function wire(id, set) {
