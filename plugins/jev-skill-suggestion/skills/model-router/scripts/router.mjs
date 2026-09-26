@@ -63,6 +63,22 @@ const TIER_CRITERIA = {
 
 export const config = JSON.parse(readFileSync(new URL('./routes.json', import.meta.url), 'utf8'))
 
+/**
+ * Providers the owner already pays for by subscription (a ChatGPT plan, a
+ * Gemini Enterprise seat), as OpenRouter id prefixes: routes.json `owned`,
+ * or ROUTER_OWNED ("openai,google", or "none"). Paid routes never send their
+ * models to OpenRouter, so the same work isn't paid for twice; --allow-owned
+ * overrides it for one call. Free models cost nothing and are left alone.
+ */
+export function ownedFamilies(env = process.env) {
+  const raw = env.ROUTER_OWNED
+  if (raw !== undefined) return raw.trim() === '' || raw.trim() === 'none' ? [] : raw.split(',').map((s) => s.trim()).filter(Boolean)
+  return config.owned?.families ?? []
+}
+
+/** Whether a model id belongs to a provider the owner already pays for. */
+export const isOwned = (id, owned = ownedFamilies()) => owned.includes(String(id).split('/')[0])
+
 // Cheap keyword heuristics; first match wins, so the order matters.
 const RULES = [
   ['code', /```|\b(code|function|bug|debug|refactor|typescript|javascript|python|swift|sql|regex|compile|stack ?trace|unit test|api endpoint)\b/i],
@@ -187,10 +203,16 @@ export function rankByTrackRecord(ids, stats, now = Date.now()) {
   return { models: result, reordered: result.some((id, i) => id !== ids[i]) }
 }
 
-export function route(prompt, { model, prefer = 'balanced', open = false, free = false, local = false, category, statsFile } = {}) {
+export function route(prompt, { model, prefer = 'balanced', open = false, free = false, local = false, category, statsFile, allowOwned = false, owned = ownedFamilies() } = {}) {
   if (!TIERS.includes(prefer)) throw new Error(`prefer must be one of ${TIERS.join(', ')}`)
   const picked = category ?? classify(prompt)
-  if (model) return { category: picked, models: [model], reason: 'model named explicitly' }
+  if (model) {
+    // A router that could pick an owned provider counts as owned too.
+    if (!allowOwned && !local && owned.length && (isOwned(model, owned) || model === AUTO)) {
+      throw new Error(`${model} ${model === AUTO ? 'can pick' : 'is'} a model you already pay for by subscription (owned: ${owned.join(', ')}); name another model, or pass --allow-owned to pay OpenRouter anyway`)
+    }
+    return { category: picked, models: [model], reason: 'model named explicitly' }
+  }
   if (!config.routes[picked]) throw new Error(`unknown category "${picked}"`)
   if (local) {
     // An override in routes.json names the Ollama models; otherwise complete() builds
@@ -221,7 +243,20 @@ export function route(prompt, { model, prefer = 'balanced', open = false, free =
     // OpenRouter accepts at most 3 entries in `models`, auto included.
     models = [...models.slice(0, MAX_MODELS - 1), AUTO]
   }
-  return { category: picked, models, reason: `${picked} / ${prefer}${open ? ' / open models only' : ''}` }
+  let skipped = ''
+  if (!allowOwned && owned.length) {
+    // Owned providers' models (and openrouter/auto, which could pick one) come
+    // out; the category's other tiers top the list up, nearest first.
+    const keep = (id) => !isOwned(id, owned) && id !== AUTO && (!open || config.models[id]?.open)
+    const dropped = models.filter((id) => !keep(id))
+    models = models.filter(keep)
+    for (const tier of NEAREST_TIERS[prefer]) for (const id of config.routes[picked][tier])
+      if (keep(id) && !models.includes(id)) models.push(id)
+    models = models.slice(0, MAX_MODELS)
+    if (models.length === 0) throw new Error(`no ${picked} model left once ${owned.join(', ')} (already paid for) are taken out; pass --allow-owned`)
+    if (dropped.length) skipped = ` / skipped ${owned.join(', ')} (already paid for)`
+  }
+  return { category: picked, models, reason: `${picked} / ${prefer}${open ? ' / open models only' : ''}${skipped}` }
 }
 
 /** OpenRouter's Authorization header, empty when the agent proxy adds the key; null when there is no key at all. */
@@ -299,7 +334,8 @@ export async function askJev(prompt, { prefer, env = process.env, fetchImpl = fe
 export async function askDecider(prompt, { prefer, open, free = false, env = process.env, fetchImpl = fetch, timeoutMs = DECIDER_TIMEOUT_MS } = {}) {
   const auth = openRouterAuth(env)
   if (!auth) return null
-  const paid = env.ROUTER_DECIDER_MODEL || (open ? config.decider.open : config.decider.default)
+  // The default decider is kept off providers already paid for (ownedFamilies).
+  const paid = env.ROUTER_DECIDER_MODEL || (open || isOwned(config.decider.default, ownedFamilies('ROUTER_OWNED' in env ? env : process.env)) ? config.decider.open : config.decider.default)
   const list = (criteria) => Object.entries(criteria).map(([name, text]) => `- ${name}: ${text}`).join('\n')
   const system = [
     'You route requests to AI models. Classify the user request; do not answer it.',
@@ -959,7 +995,7 @@ export async function listModels() {
 const USAGE = `Usage:
   node router.mjs "prompt" [--prefer quality|balanced|cheap] [--open] [--model <id>]
                            [--category <name>] [--system "..."] [--max-tokens <n>]
-                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--strict] [--no-explore] [--local] [--think] [--timeout <seconds>]
+                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--strict] [--allow-owned] [--no-explore] [--local] [--think] [--timeout <seconds>]
                            [--dry-run] [--json]
   node router.mjs sweep "prompt"  send it down every category × tier route, 4 at a time
                            (accepts --open, --free, --local, --category, --prefer, --max-tokens,
@@ -975,6 +1011,7 @@ function parse(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--open') opts.open = true
+    else if (a === '--allow-owned') opts.allowOwned = true
     else if (a === '--dry-run') opts.dryRun = true
     else if (a === '--no-jev') opts.jev = false
     else if (a === '--no-explore') opts.explore = false

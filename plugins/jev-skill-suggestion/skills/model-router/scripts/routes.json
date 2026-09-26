@@ -1,5 +1,12 @@
 {
   "_comment": "Model IDs are OpenRouter slugs. Check them with `node router.mjs check` (needs network access to openrouter.ai) and edit freely. Each list is tried in order; openrouter/auto is always the last fallback. Refreshed from OpenRouter's catalog on 2026-09-25; \"open\" means the weights are published (the catalog lists a Hugging Face ID). \"decider\" answers Jev's questions while no Jev key is set (ROUTER_DECIDER_MODEL overrides it); \"open\" is used with --open. \"free\" holds zero-cost models (OpenRouter ':free' variants, openrouter/free) used when the key is out of credit (HTTP 402) or with --free; free models are rate-limited (20/min, 50/day, or 1000/day once $10 of credit has been bought). \"local\" is optional: --local builds each route from the pulled Ollama models, ranked by size (largest first for code, reasoning, long_context and writing; mid-size for general; smallest of at least 1B for quick); a list of Ollama model names under a category overrides that (a name without a tag matches any pulled tag of it).",
+  "owned": {
+    "_comment": "Providers the owner already pays for by subscription (owner, 2026-09-26: a ChatGPT plan and a Gemini Enterprise seat). Paid routes never send these providers' models, nor openrouter/auto, to OpenRouter; their work goes to the subscription's own agent (Codex, Gemini CLI). ROUTER_OWNED overrides this list (\"none\" turns it off); --allow-owned overrides it for one call. Free models are left alone.",
+    "families": [
+      "openai",
+      "google"
+    ]
+  },
   "decider": {
     "default": "openai/gpt-6-luna",
     "open": "qwen/qwen3.8-flash",

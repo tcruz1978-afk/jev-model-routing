@@ -637,9 +637,12 @@ export function classifyText(prompt: string, skills: readonly Skill[], recentCon
 /**
  * The backup between Jev and the built-in classifier: an OpenAI-compatible
  * chat endpoint (OpenRouter by default) asked the built-in classifier's
- * question, answering with one skill name as JSON.
+ * question, answering with one skill name as JSON. The default model is the
+ * model router's open decider, not an OpenAI or Google one: the owner already
+ * pays for those by subscription (routes.json `owned`), so OpenRouter isn't
+ * paid for them a second time.
  */
-export const DEFAULT_FALLBACK = { baseUrl: 'https://openrouter.ai/api/v1', model: 'openai/gpt-6-luna', freeModel: 'openrouter/free' }
+export const DEFAULT_FALLBACK = { baseUrl: 'https://openrouter.ai/api/v1', model: 'qwen/qwen3.8-flash', freeModel: 'openrouter/free' }
 
 /** The backup's chat-completions URL. */
 export function fallbackEndpoint(baseUrl: string): string {

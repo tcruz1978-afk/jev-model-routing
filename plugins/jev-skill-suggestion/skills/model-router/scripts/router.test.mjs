@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, route, plan, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE } from './router.mjs'
+import { classify, route, plan, ownedFamilies, isOwned, askDecider, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE } from './router.mjs'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -19,6 +19,9 @@ const teamsFixture = (json) => {
 process.env.JQ_TEAMS_FILE = teamsFixture({ teams: { alpha: { level: 3, source: 'test fixture' }, beta: { level: 4, source: 'test fixture' } } })
 // Exploration is random; the tests that cover it turn it on and fix the dice.
 process.env.ROUTER_EXPLORE = 'off'
+// The owned-provider guard is off except in the tests that cover it, so the
+// route tests keep checking routes.json as written.
+process.env.ROUTER_OWNED = 'none'
 const tempStats = () => join(mkdtempSync(join(tmpdir(), 'router-stats-')), 'stats.json')
 
 test('classifies common task types', () => {
@@ -930,4 +933,49 @@ test('callRecord keeps the routing facts and never the prompt text', () => {
   const failed = callRecord('x', { model: 'a/x' }, null, 5, new Error('OpenRouter 500'), {})
   assert.equal(failed.requested, 'a/x')
   assert.equal(failed.error, 'OpenRouter 500')
+})
+
+// ---- owned providers (already paid for by subscription) ----
+
+const OWNED = ['openai', 'google']
+
+test('ownedFamilies reads routes.json, and ROUTER_OWNED overrides it', () => {
+  assert.deepEqual(config.owned.families, OWNED)
+  assert.deepEqual(ownedFamilies({}), OWNED)
+  assert.deepEqual(ownedFamilies({ ROUTER_OWNED: 'none' }), [])
+  assert.deepEqual(ownedFamilies({ ROUTER_OWNED: ' openai , x-ai ' }), ['openai', 'x-ai'])
+  assert.ok(isOwned('openai/gpt-6-luna', OWNED) && !isOwned('qwen/qwen3.8-flash', OWNED))
+})
+
+test('paid routes never carry owned models or openrouter/auto, and stay full', () => {
+  for (const [category, tiers] of Object.entries(config.routes)) for (const prefer of Object.keys(tiers)) {
+    const r = route('x', { category, prefer, owned: OWNED })
+    assert.ok(r.models.length > 0 && r.models.length <= 3, `${category}/${prefer}`)
+    assert.ok(r.models.every((m) => !isOwned(m, OWNED) && m !== 'openrouter/auto'), `${category}/${prefer}: ${r.models}`)
+  }
+  const plain = route('x', { category: 'code', prefer: 'cheap', owned: [] })
+  const guarded = route('x', { category: 'code', prefer: 'cheap', owned: OWNED })
+  if (plain.models.some((m) => isOwned(m, OWNED) || m === 'openrouter/auto')) assert.match(guarded.reason, /skipped openai, google \(already paid for\)/)
+  // --allow-owned gives the route as written.
+  assert.deepEqual(route('x', { category: 'code', prefer: 'cheap', owned: OWNED, allowOwned: true }).models, plain.models)
+})
+
+test('an owned model named explicitly is refused unless allowed; free routes are left alone', () => {
+  assert.throws(() => route('x', { model: 'openai/gpt-6-sol', owned: OWNED }), /already pay for by subscription/)
+  assert.throws(() => route('x', { model: 'openrouter/auto', owned: OWNED }), /can pick/)
+  assert.deepEqual(route('x', { model: 'openai/gpt-6-sol', owned: OWNED, allowOwned: true }).models, ['openai/gpt-6-sol'])
+  assert.deepEqual(route('x', { model: 'qwen/qwen3.8-flash', owned: OWNED }).models, ['qwen/qwen3.8-flash'])
+  const free = route('x', { category: 'code', free: true, owned: OWNED })
+  assert.deepEqual(free.models, route('x', { category: 'code', free: true, owned: [] }).models)
+})
+
+test('the stand-in decider moves off an owned default', async () => {
+  const asked = []
+  const fetchImpl = async (_url, init) => {
+    asked.push(JSON.parse(init.body).model)
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"category":"code","tier":"cheap","confidence":0.9}' } }] }) }
+  }
+  await askDecider('fix this', { env: { OPENROUTER_API_KEY: 'k', ROUTER_OWNED: 'openai,google' }, fetchImpl })
+  await askDecider('fix this', { env: { OPENROUTER_API_KEY: 'k', ROUTER_OWNED: 'none' }, fetchImpl })
+  assert.deepEqual(asked, isOwned(config.decider.default, OWNED) ? [config.decider.open, config.decider.default] : [config.decider.default, config.decider.default])
 })
