@@ -72,6 +72,18 @@ export function transcriptOf(path, projectsDir) {
   return null
 }
 
+/**
+ * Why the Skill tool refused, as a category (the message itself is not
+ * kept): 'not-installed' (no such skill in this chat), 'blocked'
+ * (disabled, denied or not allowed), or 'failed' (anything else).
+ */
+export function skillRefusalOf(content) {
+  const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c) => (typeof c?.text === 'string' ? c.text : '')).join(' ') : ''
+  if (/unknown skill|not found|no skill named/i.test(text)) return 'not-installed'
+  if (/disabled|denied|not allowed|blocked|refus|permission/i.test(text)) return 'blocked'
+  return 'failed'
+}
+
 /** Skill named by a typed `/name` in a user message, or null. */
 export function slashCommandOf(content) {
   const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((part) => part?.text ?? '').join('\n') : ''
@@ -248,7 +260,8 @@ export function eventsFromTranscript(lines, ctx, pending = {}) {
           const use = pending[block.tool_use_id]
           delete pending[block.tool_use_id]
           const done = line.timestamp && use.ts ? Date.parse(line.timestamp) - Date.parse(use.ts) : null
-          events.push({ ...use, ok: block.is_error !== true, data: { ...use.data, ms: Number.isFinite(done) ? done : null } })
+          const refusal = use.tool === 'Skill' && block.is_error === true ? skillRefusalOf(block.content) : null
+          events.push({ ...use, ok: block.is_error !== true, data: { ...use.data, ms: Number.isFinite(done) ? done : null, ...(refusal ? { refusal } : {}) } })
         }
       }
       // A person's prompt (not a tool result): counted, its kind of work and

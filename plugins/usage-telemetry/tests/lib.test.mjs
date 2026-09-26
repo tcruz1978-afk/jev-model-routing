@@ -628,7 +628,7 @@ function mixedBuild() {
   }
   for (let i = 0; i < 11; i++) ev.push({ id: 'dx' + i, kind: 'jev.decision', ts: at(190 - i), session: 's', host: 'cloud', data: { decidedBy: 'jev' } })
   ev.push({ id: 'm', kind: 'jev.miss', ts: at(150), session: 's', host: 'cloud', skill: null, data: { signal: 'picked-then-corrected', jevPick: 'pdf' } })
-  for (let i = 0; i < 5; i++) ev.push({ id: 'k' + i, kind: 'tool', ts: at(100 - i), session: 's', host: 'cloud', agent: 'main', tool: 'Skill', skill: 'dataviz', ok: false })
+  for (let i = 0; i < 5; i++) ev.push({ id: 'k' + i, kind: 'tool', ts: at(100 - i), session: 's', host: 'cloud', agent: 'main', tool: 'Skill', skill: 'dataviz', ok: false, data: { refusal: 'blocked' } })
   ev.push({ id: 'r', kind: 'router.call', ts: at(90), session: 's', host: 'cloud', model: 'z-ai/glm', cost_usd: 0.000018, ok: true, data: {} })
   ev.push({ id: 'key', kind: 'openrouter.key', ts: at(5), host: 'cloud', cost_usd: 0.5, data: { limit: 50, limit_remaining: 49.5, limit_reset: 'daily', usage_daily: 0.24, usage_weekly: 0.56, usage_monthly: 0.56, total_credits: 10, total_usage: 0.71 } })
   return buildPayload(ev, { now: END })
