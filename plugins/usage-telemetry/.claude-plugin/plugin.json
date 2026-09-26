@@ -1,6 +1,6 @@
 {
   "name": "usage-telemetry",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Records what the models are doing behind a Claude Code session: which model served each request and what it cost, every tool, skill, MCP and subagent call, Jev's skill decisions and the model router's OpenRouter calls. Keeps them in ~/.claude/usage-telemetry/ and, with USAGE_INGEST_URL set, ships them to a Supabase table so cloud sessions survive the container. A dashboard script turns them into one page.",
   "author": {
     "name": "tcruz1978-afk",

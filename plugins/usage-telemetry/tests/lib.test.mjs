@@ -89,6 +89,22 @@ test('jev-log lines become events', () => {
   assert.equal(key.id, 'orkey:k:2026-09-26T14')
 })
 
+test("the delegate tool's runs become events, and compact rows keep what the Agents tab shows", () => {
+  const line = { kind: 'delegate.run', ts: '2026-09-26T20:03:00Z', session: 's9', promptChars: 42, agent: 'hermes', model: 'x/y:free', status: 'agent-failed', billing: 'OpenRouter', costUsd: null, files: 0, ms: 22000, error: 'timed out', review: null }
+  const event = eventFromLog(JSON.stringify(line), 'cloud')
+  assert.equal(event.kind, 'delegate.run')
+  assert.equal(event.id, 'delegate:s9:2026-09-26T20:03:00Z:hermes')
+  assert.equal(event.ok, false)
+  assert.equal(event.cost_usd, null)
+  assert.equal(event.tool, null, 'the agent is not a Claude Code tool')
+  assert.deepEqual(event.data, { agent: 'hermes', status: 'agent-failed', billing: 'OpenRouter', ms: 22000, files: 0, error: 'timed out', review: null })
+  assert.equal(eventFromLog(JSON.stringify({ ...line, status: 'done', costUsd: 0.01 }), 'cloud').ok, true)
+  assert.equal(eventFromLog(JSON.stringify({ ...line, agent: undefined }), 'cloud'), null)
+  const { rows } = compact([event], { days: 30, now: Date.parse('2026-09-27T00:00:00Z') })
+  assert.equal(rows[0].k, 'delegate.run')
+  assert.deepEqual(rows[0].d, { agent: 'hermes', status: 'agent-failed', billing: 'OpenRouter', ms: 22000, files: 0, error: 'timed out', review: null })
+})
+
 test('the dashboard carries compact rows and no raw text', () => {
   const events = [
     { id: 'api:1', kind: 'api', ts: '2026-09-26T14:00:00Z', session: 's1', host: 'cloud', agent: 'main', model: 'claude-opus-5-5', output_tokens: 3, cost_usd: 0.1, data: {} },
