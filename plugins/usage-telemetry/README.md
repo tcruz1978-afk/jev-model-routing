@@ -44,14 +44,31 @@ things per environment:
 
 ## The dashboard
 
+One question leads the page: **is everything working?** Seven checks (Jev
+deciding, Jev picking right, skills loading, answers landing, the model
+router, OpenRouter credit, hosts reporting), each with its number, its
+population, the previous equal window and the owner's target (approved
+2026-09-26). A check with no data reads "not tracked", never green, and a
+previous window from before collection began reads "not tracked" too. Under them: the landed % and median
+cost per turn trends, where the Claude work went, refused skills, and tools
+failing above target. The arithmetic lives in `scripts/checks.mjs`.
+
 Ask Claude to "refresh my usage dashboard" (the `usage-dashboard` skill), or
 build it by hand:
 
 ```bash
 node scripts/collect.mjs            # collect and ship now
-node scripts/dashboard.mjs          # → ~/.claude/usage-telemetry/dashboard.html (this machine)
-node scripts/dashboard.mjs --input export.json --out dashboard.html   # from a Supabase export
+node scripts/dashboard.mjs          # → ~/.claude/usage-telemetry/dashboard.html (this machine, --source local)
+node scripts/dashboard.mjs --input export.json --source supabase --out dashboard.html   # every host
 ```
+
+Each build snapshots the page it replaces to
+`~/.claude/usage-telemetry/snapshots/` (30 kept), logs one line to
+`runs.log`, and refuses to write the page (exit 2, naming the guard) when the
+source is unusable, a key the page reads is missing, a headline count fell to
+zero (or model calls came back with $0 Claude cost), or 24 h Claude cost
+moved more than 5x. `--force` overrides. `node scripts/dashboard.mjs --help`
+lists every option.
 
 ## Tests
 

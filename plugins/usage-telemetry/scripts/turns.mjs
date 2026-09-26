@@ -24,8 +24,10 @@ function mainModelOf(api) {
  * Turn rows from compact rows (short keys, sorted or not). Each turn:
  *   t prompt time, s session index, h host, p project, cat category,
  *   m main model (null when no main-agent model call), ms models used,
- *   c cost (Claude API-equivalent plus routed OpenRouter calls), tk tokens,
- *   o output tokens, dur ms from prompt to the turn's last event, tl tool
+ *   c Claude cost at API list prices (API-equivalent, not a bill; null when
+ *   no call in the turn had a price), rc cost
+ *   the model router's OpenRouter calls logged (billed; kept apart from c, the
+ *   two are never added), o output tokens, dur ms from prompt to the turn's last event, tl tool
  *   calls, tf tool failures, sa subagents started, sk skills loaded,
  *   land true (your next prompt did not push back), false (it did), or null
  *   (no next prompt in the session yet: unknown).
@@ -51,8 +53,8 @@ export function turnsFrom(rows) {
       const routed = body.filter((r) => r.k === 'router.call')
       const tools = body.filter((r) => r.k === 'tool')
       const next = n + 1 < starts.length ? list[starts[n + 1]] : null
-      const tokens = (r) => (r.i ?? 0) + (r.o ?? 0) + (r.cr ?? 0) + (r.cw ?? 0)
-      const cost = [...api, ...routed].reduce((a, r) => a + (r.c ?? 0), 0)
+      const cost = api.reduce((a, r) => a + (r.c ?? 0), 0)
+      const routedCost = routed.reduce((a, r) => a + (r.c ?? 0), 0)
       turns.push({
         t: prompt.t,
         s: prompt.s,
@@ -61,8 +63,9 @@ export function turnsFrom(rows) {
         cat: prompt.cat ?? (prompt.sl ? 'command' : 'other'),
         m: mainModelOf(api),
         ms: [...new Set(api.map((r) => r.m).filter(Boolean))],
-        c: Math.round(cost * 1e6) / 1e6,
-        tk: api.reduce((a, r) => a + tokens(r), 0),
+        // null when no model call in the turn had a price: left out of medians, never $0.
+        c: api.some((r) => Number.isFinite(r.c)) ? Math.round(cost * 1e6) / 1e6 : null,
+        ...(routed.length ? { rc: Math.round(routedCost * 1e8) / 1e8 } : {}),
         o: api.reduce((a, r) => a + (r.o ?? 0), 0),
         dur: body.length ? body[body.length - 1].t - prompt.t : 0,
         tl: tools.length,

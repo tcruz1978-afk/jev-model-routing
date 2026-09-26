@@ -133,6 +133,18 @@ export function promptText(content) {
   return trimmed
 }
 
+/**
+ * The project a session belongs to: the folder it started in. A session
+ * started in the home folder has no project, so it reads "~" rather than the
+ * user's name (`/home/user` used to show as a project called "user").
+ */
+export function projectLabel(cwd, home = null) {
+  if (!cwd) return null
+  const clean = String(cwd).replace(/[\\/]+$/, '')
+  if (home && clean === String(home).replace(/[\\/]+$/, '')) return '~'
+  return basename(clean) || null
+}
+
 const base = (fields) => ({
   model: null,
   input_tokens: null,
@@ -151,10 +163,11 @@ const base = (fields) => ({
 /**
  * Reads one transcript's new lines into events.
  *
- * `ctx`: { session, project, agentId, agentType, host, startCwd } for the
- * file. The project is where the session started (`startCwd`, the file's
- * first `cwd`), not where the shell happens to be: a `cd` moves every later
- * line's `cwd`. The caller keeps `ctx.startCwd` between runs.
+ * `ctx`: { session, project, agentId, agentType, host, startCwd, home } for
+ * the file. The project is where the session started (`startCwd`, the main
+ * transcript's first `cwd`), not where the shell happens to be: a `cd` moves
+ * every later line's `cwd`. The caller keeps `ctx.startCwd` between runs and
+ * hands a subagent its session's, so both carry the same project.
  * `pending`: tool uses seen without their result yet, by tool_use id; carried
  * between runs, so a tool is recorded once, with whether it failed.
  * Returns the events; `pending` is updated in place.
@@ -169,7 +182,7 @@ export function eventsFromTranscript(lines, ctx, pending = {}) {
       ts: line.timestamp ?? null,
       session: line.sessionId ?? ctx.session,
       host: ctx.host,
-      project: ctx.startCwd ? basename(ctx.startCwd) : ctx.project,
+      project: ctx.startCwd ? projectLabel(ctx.startCwd, ctx.home) : ctx.project,
       agent,
     }
   }
