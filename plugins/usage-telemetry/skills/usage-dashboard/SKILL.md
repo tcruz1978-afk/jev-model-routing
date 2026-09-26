@@ -1,6 +1,6 @@
 ---
 name: usage-dashboard
-description: Refresh or show the Claude usage dashboard — one page answering "is everything working?" (Jev deciding and picking right, skills loading, answers landing, the model router, OpenRouter credit, hosts reporting), plus Claude cost by agent and refused skills. Use when the user asks to see, refresh, update or check the dashboard, usage, spend, or whether skills, Jev or the model router are working.
+description: Refresh or show the Claude usage dashboard — what the models did and what it cost (Claude and OpenRouter spend, cost by model per day, where the work went by skill, connector and subagent, which model served what, Jev paid against free, the model router, top chats, recent activity), with a health strip of seven checks at the bottom. Use when the user asks to see, refresh, update or check the dashboard, usage, spend, what the models are doing, or whether skills, Jev or the model router are working.
 ---
 
 # Usage dashboard
@@ -61,22 +61,34 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
 
 ## What the page computes
 
-All arithmetic is in `scripts/checks.mjs`, and every visible word in
+All arithmetic is in `scripts/checks.mjs`, and the health strip's words in
 `scripts/present.mjs`; both are inlined into the page and tested by
-`tests/lib.test.mjs`.
+`tests/*.test.mjs`.
 
-The layout is the owner's approved one, for a busy owner rather than an
-engineer: the question "Is everything working?" with a plain verdict ("2 need
-attention", "All clear", "Out of date — built 8 days ago"); a numbered "What
-to do" list (at most 5: yours first, then Claude's, then ones that clear on
-their own, each with when it's done; `actionsFor` in checks.mjs); then one
-line per check (icon, plain name, one figure and its target, › to open a
-short panel); then "This week Claude $X (at pay-as-you-go prices) ·
-OpenRouter $Y". Everything else sits in one closed "Details" section. No code,
-paths or internal terms appear in the top block (a test scans for them);
-click-by-click steps live only behind "Show me how". Ranges run back from the build time, never from when
-the page is opened; a page opened more than 26 h after its build shows an
-"Out of date" banner, greys every section, and turns the verdict grey.
+The page leads with what the models did and what it cost, then health.
+Top to bottom, for the chosen period and machines:
+
+1. Headline numbers with the change on the previous period (once it is
+   collected): Claude work at pay-as-you-go prices, OpenRouter spend (from
+   the key's running total, account-wide), your requests, model calls, tool
+   calls with failures, OpenRouter credit left and how long it lasts at the
+   recent spend rate.
+2. Cost by model per day (per hour for 24 hours), stacked bars.
+3. Where the work went: by skill, connector or plugin, and subagent (uses,
+   cost, failures, typical time). Model calls are charged to the skill
+   active in their turn; the rest show as "no skill".
+4. Model × work grid: which model served which skill or router task.
+5. Jev: paid against free by who decided (Jev and paid backups against the
+   free backup and Claude Code's own classifier), with misroutes, landed
+   rate and typical time per tier ("too few to judge" under 10), picks per
+   skill, how sure it was, and the benchmark from
+   `~/.claude/usage-telemetry/jev-tiers.json` (`--tiers FILE`) when it
+   exists.
+6. The model router by task kind, and model asked for against model that
+   answered.
+7. Top 10 chats by cost; 8. the newest 100 things the models did.
+9. The health strip: seven checks as pills, "What to do" beside any a person
+   or Claude has to act on.
 
 Coverage: the window line prints "Data since <first event>". A range longer
 than the data says how much it holds ("only 72 min of data") and its button
@@ -84,7 +96,7 @@ is dotted-underlined. A previous window that starts before the first event
 is "not tracked (collection began …)", never "none", in the checks and in
 every table.
 
-The headline is "Is everything working?": seven checks, each Pass, Needs
+The health strip ("Is anything broken?") holds seven checks, each Pass, Needs
 attention, Not tracked (no data, never green), Too few to judge (a rate over
 fewer than 10) or Partial (its data stopped early). The owner's targets,
 approved 2026-09-26, are the only source of colour:

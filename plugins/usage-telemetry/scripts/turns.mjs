@@ -28,7 +28,8 @@ function mainModelOf(api) {
  *   no call in the turn had a price), rc cost
  *   the model router's OpenRouter calls logged (billed; kept apart from c, the
  *   two are never added), o output tokens, dur ms from prompt to the turn's last event, tl tool
- *   calls, tf tool failures, sa subagents started, sk skills loaded,
+ *   calls, tf tool failures, sa subagents started, sk skills loaded, ak
+ *   skills its model calls were attributed to,
  *   land true (your next prompt did not push back), false (it did), or null
  *   (no next prompt in the session yet: unknown).
  */
@@ -72,6 +73,8 @@ export function turnsFrom(rows) {
         tf: tools.filter((r) => r.ok === false).length,
         sa: tools.filter((r) => r.tl === 'Agent' || r.tl === 'Task').length,
         sk: [...new Set(tools.filter((r) => r.tl === 'Skill' && r.sk && r.ok !== false).map((r) => r.sk))],
+        // Skills the turn's model calls worked for (set by attribute in checks.mjs, when it ran first).
+        ak: [...new Set(api.map((r) => r.as).filter(Boolean))],
         land: next ? !next.cx : null,
       })
     })

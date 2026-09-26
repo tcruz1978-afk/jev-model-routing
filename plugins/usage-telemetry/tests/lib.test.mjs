@@ -538,13 +538,15 @@ test('--help prints usage (with --state-dir and --now) and builds nothing', () =
   assert.match(readText(script, 'utf8').split('*/')[0], /--state-dir dir.*\n.*--now ISO-time/)
 })
 
-test('the page lists the eight approved targets and words the 24h trend in blocks', () => {
+test('the page lists the eight approved targets and leads with what the models did, health last', () => {
   assert.equal(TARGET_NOTES.length, 8)
   const html = render(buildPayload(sampleEvents(), { now: END }))
   assert.ok(html.includes('TARGET_NOTES.map'))
-  assert.ok(html.includes("'4-hour block'"))
-  assert.ok(!html.includes("'4 hours' :"))
   assert.ok(html.includes('firstEventAt'))
+  const order = ['id="kpis"', 'id="costchart"', 'id="w-skill"', 'id="grid"', 'id="jev-tiers"', 'id="r-cat"', 'id="chats"', 'id="feed"', 'id="checks"']
+  const at = order.map((id) => html.indexOf(id))
+  assert.ok(at.every((i) => i > 0), 'every panel is on the page')
+  assert.deepEqual([...at].sort((x, y) => x - y), at, 'in the approved order: headline first, health last')
 })
 
 // ---------- the plain-words page: actions, one line per check, no jargon ----------
@@ -643,7 +645,7 @@ test('the top block: exactly one line per check, panels and Details closed by de
   const t = topBlock(mixedBuild())
   assert.equal((t.checks.match(/<details class="check /g) || []).length, 7)
   assert.equal((t.checks.match(/<summary>/g) || []).length, 7)
-  for (const li of t.checks.split('<li><details').slice(1)) {
+  for (const li of t.checks.split('<details class="check ').slice(1)) {
     const summary = li.slice(li.indexOf('<summary>'), li.indexOf('</summary>'))
     assert.equal((summary.match(/class="name"/g) || []).length, 1)
     assert.equal((summary.match(/class="figure"/g) || []).length, 1)
