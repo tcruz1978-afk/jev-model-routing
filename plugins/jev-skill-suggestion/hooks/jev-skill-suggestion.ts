@@ -66,6 +66,15 @@
  * `prompt.attachment` event is that release's. Typed against Anthropic's
  * declarations: https://github.com/anthropics/claude-code/tree/main/mods
  *
+ * Judgement quotient (JQ): each decision is also appended to the JQ log
+ * (~/.jq/decisions.jsonl; JQ_LOG_FILE moves it, JQ_LOG=off stops it) in the
+ * format tc-ventures' `tools/jq/jq.mjs report` scores, with the probability
+ * the decision rested on (`jqConfidence`), never the prompt's text. A pick is
+ * shown to the user as a `Jev: <skill> (<confidence>)` line Claude is asked to
+ * start its reply with; the next prompt then records what the user did about
+ * it (`jqOutcomeFor`): kept, overruled by a typed `/other-skill`, or nothing
+ * when it reads as a correction.
+ *
  * Privacy: with a key set, the prompt text, every candidate skill's name and
  * description, and the opening of each shortlisted skill's SKILL.md are sent
  * to whichever backend the key belongs to.
@@ -128,7 +137,12 @@ import {
   DEFAULT_POLICY,
   recentContextOf,
   jevUnavailable,
+  jqConfidence,
+  jqOutcomeFor,
+  jevLine,
+  withJevLine,
 } from './policy.ts'
+import { SHARED_DIR, decisionEntry, jqLogPath, outcomeEntry, writeEntry } from '../skills/model-router/scripts/jq-log.mjs'
 import type { Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Skill, Wide } from './policy.ts'
 
 /** Prompt origins that are not a task of the person's: nothing to suggest for. */
@@ -277,6 +291,26 @@ export const register: Register = (on, options) => {
     }
   }
 
+  // The judgement-quotient log (see jq-log.mjs): where it is, by jq.mjs's rule.
+  const jqAppend = async (
+    $: { fs: { read: (path: string) => Promise<unknown>; write: (path: string, text: string) => Promise<void>; exists: (path: string) => Promise<boolean> }; env: { get: (name: string) => Promise<string | undefined> } },
+    entry: object | null,
+  ): Promise<boolean> => {
+    if (!entry) return false
+    try {
+      const env: Record<string, string | undefined> = {}
+      for (const name of ['JQ_LOG', 'JQ_LOG_FILE', 'NODE_TEST_CONTEXT', 'HOME']) env[name] = await $.env.get(name)
+      const path = jqLogPath(env, { sharedDirExists: await $.fs.exists(SHARED_DIR) })
+      return await writeEntry(entry, path, $.fs)
+    } catch {
+      // Keeping score never holds up the prompt.
+      return false
+    }
+  }
+  // The last pick the user was shown (the `Jev: …` line), waiting for the
+  // next prompt to say what they did about it.
+  let shown: { skill: string; jqId: string } | null = null
+
   // The previous prompt of the main conversation and the skill it got, sent
   // as Jev's recent_context: "run it on X too" names no skill on its own.
   let previous: { prompt: string; skill: string | null } | null = null
@@ -367,6 +401,28 @@ export const register: Register = (on, options) => {
       }
     }
     suggested = null
+
+    // The user's answer to the pick they were shown last time, if this prompt
+    // is theirs: a typed `/other-skill` overrules it, a correction says nothing
+    // for sure, anything else lets it stand (the JQ rule for "kept": they saw
+    // the call and let it stand).
+    if (shown && !(e.origin && NOT_A_TASK.has(e.origin.kind)) && e.text.trim()) {
+      const was = shown
+      shown = null
+      let names: Set<string> | null = null
+      const isSkill = (name: string) => names !== null && (names.has(name) || [...names].some((n) => n.endsWith(`:${name}`)))
+      try {
+        if (/^\/\S/.test(e.text.trim())) names = new Set((await $.command.list()).filter((c) => c.source !== 'builtin').map((c) => c.name))
+      } catch {
+        names = null
+      }
+      const verdict = jqOutcomeFor(was.skill, e.text, isSkill)
+      if (verdict) {
+        const answer = verdict.outcome === 'overruled' ? verdict.answer : undefined
+        const ok = await jqAppend($, outcomeEntry(was.jqId, verdict.outcome, { answer, now: await $.clock.now() }))
+        if (ok && logDecisions) $.ui.log(`[jev-skill-suggestion] JQ ${was.jqId}: /${was.skill} ${verdict.outcome}${answer ? ` (the user ran /${answer})` : ''}`)
+      }
+    }
 
     // Notifications and peer messages are not tasks; a typed `/name` already
     // names its skill. Neither gets a suggestion, but a typed `/name` is what
@@ -603,12 +659,16 @@ export const register: Register = (on, options) => {
 
     const offered = barred.length > 0 ? skills.filter((skill) => !barred.includes(skill.name)) : skills
     let decision = decide(wide, rerank, offered, policy, rerankAttempted)
+    // The probability the decision rested on, for the judgement quotient.
+    let jq = jqConfidence(wide, rerank, offered, policy, rerankAttempted, decision)
     let pick = decision.name ? (skills.find((skill) => skill.name === decision.name) ?? null) : null
     // The winner's own frontmatter has the last word, whichever path picked it.
     if (pick && !barred.includes(pick.name) && !modelInvocable(await bodyOf(pick, pluginOf.get(pick.name)))) {
       barred.push(pick.name)
       decision = { name: null, reason: `/${pick.name} has disable-model-invocation` }
       pick = null
+      // A rule, not a judgment: nothing to score.
+      jq = null
     }
     if (logDecisions && barred.length > 0) {
       $.ui.log(
@@ -627,6 +687,19 @@ export const register: Register = (on, options) => {
 
     suggested = pick?.name ?? null
     previous = { prompt: e.text, skill: suggested }
+    // One JQ record per decision: the pick, or "none", with its probability.
+    // Nothing when the decision rested on no probability (see jqConfidence).
+    const jqEntry = jq
+      ? decisionEntry(
+          { tool: 'jev-skill-suggestion', question: 'skill', answer: pick?.name ?? 'none', confidence: jq.confidence, decidedBy, basis: jq.basis },
+          { now: await $.clock.now() },
+        )
+      : null
+    const jqId = (await jqAppend($, jqEntry)) && jqEntry ? jqEntry.id : null
+    // A pick with a stated probability is shown to the user in Claude's reply,
+    // so what they do next is a verdict on a call they saw.
+    const line = pick && jq ? jevLine(pick.name, jq.confidence) : null
+    shown = pick && line && jqId ? { skill: pick.name, jqId } : null
     let block: string | null
     if (injectContent && pick) {
       const file = await fileOf(pick, pluginOf.get(pick.name))
@@ -665,7 +738,9 @@ export const register: Register = (on, options) => {
       wideMs,
       rerankMs,
       injected: injectContent && pick !== null,
+      jqId,
     })
+    if (block) block = withJevLine(block, line)
     if (!block) return next(e)
     // Attached on the way down: one block after the prompt as typed, read by
     // the model and never shown to the person.
@@ -681,6 +756,7 @@ export const register: Register = (on, options) => {
     files.clear()
     suggested = null
     previous = null
+    shown = null
     return next(e)
   })
   on('session.compact', async ($, e, next) => {

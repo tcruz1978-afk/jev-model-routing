@@ -1,5 +1,5 @@
 {
-  "_comment": "Model IDs are OpenRouter slugs. Check them with `node router.mjs check` (needs network access to openrouter.ai) and edit freely. Each list is tried in order; openrouter/auto is always the last fallback. Refreshed from OpenRouter's catalog on 2026-09-25; \"open\" means the weights are published (the catalog lists a Hugging Face ID). \"decider\" answers Jev's questions while no Jev key is set (ROUTER_DECIDER_MODEL overrides it); \"open\" is used with --open. \"free\" holds zero-cost models (OpenRouter ':free' variants, openrouter/free) used when the key is out of credit (HTTP 402) or with --free; free models are rate-limited (20/min, 50/day, or 1000/day once $10 of credit has been bought).",
+  "_comment": "Model IDs are OpenRouter slugs. Check them with `node router.mjs check` (needs network access to openrouter.ai) and edit freely. Each list is tried in order; openrouter/auto is always the last fallback. Refreshed from OpenRouter's catalog on 2026-09-25; \"open\" means the weights are published (the catalog lists a Hugging Face ID). \"decider\" answers Jev's questions while no Jev key is set (ROUTER_DECIDER_MODEL overrides it); \"open\" is used with --open. \"free\" holds zero-cost models (OpenRouter ':free' variants, openrouter/free) used when the key is out of credit (HTTP 402) or with --free; free models are rate-limited (20/min, 50/day, or 1000/day once $10 of credit has been bought). \"local\" is optional: --local builds each route from the pulled Ollama models, ranked by size (largest first for code, reasoning, long_context and writing; mid-size for general; smallest of at least 1B for quick); a list of Ollama model names under a category overrides that (a name without a tag matches any pulled tag of it).",
   "decider": {
     "default": "openai/gpt-6-luna",
     "open": "qwen/qwen3.8-flash",
@@ -126,6 +126,7 @@
     "long_context": {
       "quality": [
         "anthropic/claude-opus-5.5",
+        "deepseek/deepseek-v4-pro-0813",
         "moonshotai/kimi-k3",
         "google/gemini-3.8-flash"
       ],
@@ -153,20 +154,22 @@
       ],
       "cheap": [
         "openai/gpt-6-luna",
-        "qwen/qwen3.8-flash",
-        "deepseek/deepseek-v4.1-flash"
+        "deepseek/deepseek-v4.1-flash",
+        "qwen/qwen3.8-flash"
       ]
     },
     "quick": {
       "quality": [
         "anthropic/claude-haiku-4.5",
         "google/gemini-3.8-flash",
-        "qwen/qwen3.8-flash"
+        "z-ai/glm-5.3",
+        "nvidia/nemotron-3.5-lightning"
       ],
       "balanced": [
         "openai/gpt-6-luna",
-        "qwen/qwen3.8-flash",
-        "nvidia/nemotron-3.5-lightning"
+        "nvidia/nemotron-3.5-lightning",
+        "z-ai/glm-5.3-flash",
+        "qwen/qwen3.8-flash"
       ],
       "cheap": [
         "z-ai/glm-5.3-flash",
@@ -178,6 +181,7 @@
       "quality": [
         "anthropic/claude-opus-5.5",
         "openai/gpt-6-sol",
+        "deepseek/deepseek-v4-pro-0813",
         "moonshotai/kimi-k3"
       ],
       "balanced": [
@@ -194,34 +198,41 @@
   },
   "free": {
     "code": [
-      "qwen/qwen3.8-27b:free",
       "poolside/laguna-s-2.1:free",
-      "openrouter/free"
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "openrouter/free",
+      "qwen/qwen3.8-27b:free"
     ],
     "reasoning": [
       "nvidia/nemotron-3-ultra-550b-a55b:free",
       "z-ai/glm-5.2:free",
-      "openrouter/free"
+      "openrouter/free",
+      "nvidia/nemotron-3-super-120b-a12b:free"
     ],
     "long_context": [
       "nvidia/nemotron-3-ultra-550b-a55b:free",
       "thinkingmachines/inkling:free",
-      "openrouter/free"
+      "openrouter/free",
+      "z-ai/glm-5.2:free"
     ],
     "writing": [
       "z-ai/glm-5.2:free",
       "google/gemma-4-31b-it:free",
-      "openrouter/free"
+      "openrouter/free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free"
     ],
     "quick": [
+      "z-ai/glm-5.2:free",
       "nvidia/nemotron-3.5-lightning:free",
-      "google/gemma-4-26b-a4b-it:free",
-      "openrouter/free"
+      "openrouter/free",
+      "google/gemma-4-26b-a4b-it:free"
     ],
     "general": [
       "z-ai/glm-5.2:free",
       "nvidia/nemotron-3-super-120b-a12b:free",
-      "openrouter/free"
+      "openrouter/free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free"
     ]
-  }
+  },
+  "local": {}
 }
