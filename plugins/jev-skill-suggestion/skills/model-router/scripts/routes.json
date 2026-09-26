@@ -14,7 +14,7 @@
       "command": "claude",
       "args": [
         "-p",
-        "{prompt}"
+        "{prompt}", "--model", "{model}"
       ]
     },
     "google": {

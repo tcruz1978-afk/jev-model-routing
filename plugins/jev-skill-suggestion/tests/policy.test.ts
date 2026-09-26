@@ -720,3 +720,17 @@ test('a prompt Jev could not decide on still leaves a decision line, with the re
   expect(r.reason).toBe('no candidate skills')
   expect(r.promptChars).toBe(11)
 })
+
+test('agentModelFor: a helper agent runs on haiku, sonnet or opus by what its task needs', async () => {
+  const { agentModelFor, agentQuestions } = await import('../hooks/policy.ts')
+  expect(agentModelFor({ needsTools: null, category: 'code', tier: 'cheap' })?.model).toBe('haiku')
+  expect(agentModelFor({ needsTools: null, category: 'code', tier: 'balanced' })?.model).toBe('sonnet')
+  expect(agentModelFor({ needsTools: null, category: 'reasoning', tier: 'quality' })?.model).toBe('opus')
+  // A quick task is haiku's unless Jev called it hard.
+  expect(agentModelFor({ needsTools: null, category: 'quick', tier: 'balanced' })?.model).toBe('haiku')
+  expect(agentModelFor({ needsTools: null, category: 'quick', tier: 'quality' })?.model).toBe('opus')
+  // No tier from Jev: the agent keeps its own model.
+  expect(agentModelFor({ needsTools: null, category: 'code', tier: null })).toBeNull()
+  expect(agentModelFor(null)).toBeNull()
+  expect(Object.keys(agentQuestions('typesafe')).sort()).toEqual(['route::category', 'route::tier'])
+})

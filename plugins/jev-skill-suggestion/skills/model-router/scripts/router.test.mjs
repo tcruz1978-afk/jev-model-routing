@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, route, plan, ownedFamilies, isOwned, askDecider, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE, cascadeSteps, completeCascade, agentsOnRoute, sameFamily } from './router.mjs'
+import { classify, route, plan, ownedFamilies, isOwned, askDecider, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE, cascadeSteps, completeCascade, agentsOnRoute, sameFamily, claudeModelAlias, completeAgent } from './router.mjs'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -1177,4 +1177,22 @@ test('free lists lead with the free models that answer (probed 2026-09-26: Nemot
     assert.ok(reliable.includes(ids[0]) && reliable.includes(ids[1]), category)
     assert.equal(ids[2], 'openrouter/free', category)
   }
+})
+
+test('the Claude Code agent runs on the model the route names: haiku, sonnet or opus', async () => {
+  assert.equal(claudeModelAlias('anthropic/claude-haiku-4.5'), 'haiku')
+  assert.equal(claudeModelAlias('anthropic/claude-sonnet-5'), 'sonnet')
+  assert.equal(claudeModelAlias('anthropic/claude-opus-5.5'), 'opus')
+  assert.equal(claudeModelAlias('openai/gpt-6'), null)
+  const ran = []
+  const runImpl = async (command, args) => { ran.push([command, ...args]); return 'ok' }
+  for (const [category, prefer] of [['quick', 'quality'], ['code', 'balanced'], ['code', 'quality']]) {
+    const claude = agentsOnRoute(category, prefer, ['anthropic']).find((a) => a.family === 'anthropic')
+    await completeAgent('hi', claude, { runImpl })
+  }
+  assert.deepEqual(ran.map((r) => r.slice(-2)), [['--model', 'haiku'], ['--model', 'sonnet'], ['--model', 'opus']])
+  // No Anthropic model on the route: the flag is left out, not sent empty.
+  ran.length = 0
+  await completeAgent('hi', { family: 'anthropic', command: 'claude', args: ['-p', '{prompt}', '--model', '{model}'], model: null }, { runImpl })
+  assert.deepEqual(ran, [['claude', '-p', 'hi']])
 })

@@ -852,15 +852,34 @@ export function agentsOnRoute(category, prefer, owned = ownedFamilies()) {
     const family = String(id).split('/')[0]
     if (owned.includes(family) && config.agents?.[family] && !families.includes(family)) families.push(family)
   }
-  return families.map((family) => ({ family, ...config.agents[family] }))
+  return families.map((family) => ({
+    family,
+    ...config.agents[family],
+    // The route's model of that family, handed to the agent where its args take `{model}`.
+    model: (config.routes[category]?.[prefer] ?? []).find((id) => String(id).split('/')[0] === family) ?? null,
+  }))
+}
+
+/** The Claude Code alias for a route's Anthropic model (haiku, sonnet, opus), or null. */
+export function claudeModelAlias(id) {
+  const name = String(id ?? '').split('/').pop()
+  return ['haiku', 'sonnet', 'opus'].find((alias) => name.includes(alias)) ?? null
 }
 
 /** Sends the prompt to one subscription agent's command-line tool, on the owner's own sign-in. */
 export async function completeAgent(prompt, agent, { system, timeoutMs, env, runImpl = runCommand } = {}) {
   const text = system ? `${system}\n\n${prompt}` : prompt
-  const args = agent.args.map((a) => (a === '{prompt}' ? text : a))
+  // `{model}`: the route's model as the agent names it; with none, the flag before it goes too.
+  const model = agent.family === 'anthropic' ? claudeModelAlias(agent.model) : agent.model ?? null
+  const args = []
+  for (const a of agent.args) {
+    if (a === '{model}') {
+      if (model) args.push(model)
+      else if (args.length && args[args.length - 1].startsWith('-')) args.pop()
+    } else args.push(a === '{prompt}' ? text : a)
+  }
   const out = await runImpl(agent.command, args, { timeoutMs, env })
-  return { model: `${agent.command} (${agent.family} subscription)`, text: String(out), usage: null, truncated: false }
+  return { model: `${agent.command}${model ? ` ${model}` : ''} (${agent.family} subscription)`, text: String(out), usage: null, truncated: false }
 }
 
 /**

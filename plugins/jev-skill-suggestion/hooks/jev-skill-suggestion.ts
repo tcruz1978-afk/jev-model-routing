@@ -149,6 +149,8 @@ import {
   offloadContext,
   offloadShown,
   readRoute,
+  agentModelFor,
+  agentQuestions,
   FOR_CLAUDE,
   skippedDecision,
 } from './policy.ts'
@@ -917,6 +919,38 @@ export const register: Register = (on, options) => {
   // An injected skill lives in the conversation, not the process: `/clear`
   // or a resume starts another under the same worker, and a compaction may
   // summarize the block away. Either way the next pick goes in whole again.
+  // A helper agent Claude starts gets a Claude model fit for its task: Jev
+  // reads the agent's prompt and says how much model it needs (haiku, sonnet
+  // or opus). An agent given a model on purpose, a fork, the comparison's
+  // "off" group, or no answer from Jev keeps its own or the parent's model.
+  const agentModelsOn = flag('agentModels', true)
+  on('agent.spawn', async ($, e, next) => {
+    if (!agentModelsOn || e.model || e.subagentType === 'fork') return next(e)
+    if (!resolved) {
+      resolved = true
+      resolve((await $.env.get('OPENROUTER_API_KEY')) ?? '', (await $.env.get('OPENROUTER_AUTH')) ?? '')
+    }
+    if (!active) return next(e)
+    if ((await armFor($, arms, armShares, logDecisions)) === 'off') return next(e)
+    let pick: { model: string; reason: string } | null = null
+    try {
+      const response = await Promise.race([
+        $.http.fetch(url, {
+          method: 'POST',
+          headers: requestHeaders(active, apiKey, modelId),
+          body: requestBody(active, e.prompt.slice(0, 6000), agentQuestions(active), modelId, ''),
+        }),
+        $.clock.sleep(Math.max(timeoutMs, 1500)),
+      ])
+      if (response && response.ok) pick = agentModelFor(readRoute(response.text))
+    } catch (error) {
+      if (logDecisions) $.ui.log(`[jev-skill-suggestion] agent model: Jev failed (${String(error)}); the agent keeps its model`, { to: 'debug' })
+    }
+    if (!pick) return next(e)
+    if (logDecisions) $.ui.log(`[jev-skill-suggestion] helper agent "${e.description}" runs on ${pick.model} (${pick.reason})`)
+    return next({ ...e, model: pick.model })
+  })
+
   on('session.end', async ($, e, next) => {
     injected.clear()
     roots = null
