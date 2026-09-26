@@ -552,6 +552,8 @@ test('only a file with the backup\'s own shape is treated as a reusable backup',
 
 test('backup: OpenRouter chat request asks the classifier question as JSON', () => {
   expect(fallbackEndpoint(DEFAULT_FALLBACK.baseUrl)).toBe('https://openrouter.ai/api/v1/chat/completions')
+  // Not a provider the owner already pays for by subscription (routes.json `owned`).
+  expect(DEFAULT_FALLBACK.model.split('/')[0]).not.toMatch(/^(openai|google)$/)
   expect(fallbackEndpoint('https://example.test/v1/')).toBe('https://example.test/v1/chat/completions')
   const body = JSON.parse(fallbackBody('review this diff', skills, 'openai/gpt-6-luna'))
   expect(body.model).toBe('openai/gpt-6-luna')

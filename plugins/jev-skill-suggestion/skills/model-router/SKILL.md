@@ -42,6 +42,15 @@ Other flags: `--category <kind>` fixes the task kind, `--system "..."` adds a
 system prompt, `--no-jev` uses the keyword rules only, `--free` uses free
 models from the start, `--strict` keeps a named model even when out of credit.
 
+## Providers already paid for
+
+`openai` and `google` are paid for by subscription (`owned` in
+`routes.json`), so routes never send their models to OpenRouter and
+`--model openai/...` is refused. When the user wants GPT or Gemini
+specifically, that work belongs to Codex or Gemini CLI on the owner's
+sign-in, not this router. Only pass `--allow-owned` when the user asks to pay
+OpenRouter for it anyway.
+
 ## When credit runs out
 
 Never stop or wait for credit. On a 402 the router switches to free models on
