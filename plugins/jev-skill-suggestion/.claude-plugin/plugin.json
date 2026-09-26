@@ -1,6 +1,6 @@
 {
   "name": "jev-skill-suggestion",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Keeps the skill listing out of the context window and lets Jev, TypeSafe's decision model, pick at most one skill per prompt. Jev is reached through OpenRouter with just OPENROUTER_API_KEY set (or TypeSafe or the Vercel AI Gateway directly); an OpenRouter chat model is the backup and the engine's built-in classifier the last resort. Also ships a model-router skill: Jev decides what kind of task a prompt is and how much model it needs, and OpenRouter runs it. Based on the jev-skill-suggestion mod from claude-code-templates.",
   "author": {
     "name": "tcruz1978-afk",
@@ -163,6 +163,18 @@
       "title": "Log decisions",
       "description": "Write each selection to the session log",
       "default": true
+    },
+    "offload": {
+      "type": "boolean",
+      "title": "Answer simple prompts with the model router",
+      "description": "On every prompt, Jev's skill request also asks whether the prompt needs Claude Code's tools. When Jev is sure it doesn't (and it isn't quality-tier or project work), the model router answers it with local Ollama, then free models, instead of starting a Claude turn. A prompt starting with \"claude:\" always goes to Claude.",
+      "default": true
+    },
+    "offloadTimeoutMs": {
+      "type": "number",
+      "title": "Model router time limit (ms)",
+      "description": "How long the router may take to answer a prompt it took over before Claude answers instead",
+      "default": 60000
     }
   }
 }

@@ -495,7 +495,8 @@ export async function plan(prompt, options = {}) {
   // the tier is never below the level's floor.
   const trusted = (pick) => (pick && (!bar || (pick.confidence ?? 0) >= bar.need) ? pick : null)
   const category = options.category ?? trusted(jev?.category)?.choice
-  let prefer = options.prefer ?? trusted(jev?.tier)?.choice ?? 'balanced'
+  // `tierHint`: a tier Jev already gave (the prompt hook asks it with the skill pick), held to the JQ bar like Jev's own.
+  let prefer = options.prefer ?? trusted(jev?.tier)?.choice ?? options.tierHint ?? 'balanced'
   if (bar && !options.prefer && TIERS.indexOf(prefer) > TIERS.indexOf(bar.minTier)) prefer = bar.minTier
   const result = route(prompt, { ...options, category, prefer })
   const decidedBy = settled ? 'flags' : trusted(jev?.category) || trusted(jev?.tier) ? (jev.backend.startsWith('stand-in') ? jev.backend : `Jev (${jev.backend})`) : 'heuristics'
@@ -817,8 +818,11 @@ export async function completeAgent(prompt, agent, { system, timeoutMs, env, run
  * pick, or the JQ level's floor) goes straight to the subscriptions and paid
  * models: local and free models are not trusted with work that must be right.
  */
-export function cascadeSteps(decision, owned = ownedFamilies()) {
+export function cascadeSteps(decision, owned = ownedFamilies(), { offload = false } = {}) {
   const quality = decision.prefer === 'quality'
+  // Offload (the prompt hook answering in Claude's place): local and free only,
+  // and nothing at all for a quality tier, which stays with Claude.
+  if (offload) return quality ? [] : [{ via: 'local' }, { via: 'free' }]
   const agents = agentsOnRoute(decision.category, decision.prefer ?? 'balanced', owned)
   return [
     ...(quality ? [] : [{ via: 'local' }]),
@@ -839,7 +843,8 @@ const stepLabel = (step) => (step.via === 'agent' ? step.agent.command : step.vi
 export async function completeCascade(prompt, options = {}) {
   const { env = process.env, fetchImpl = fetch, runImpl = runCommand } = options
   const decision = await plan(prompt, options)
-  const steps = cascadeSteps(decision, options.owned ?? ownedFamilies(env))
+  const steps = cascadeSteps(decision, options.owned ?? ownedFamilies(env), { offload: options.offload })
+  if (!steps.length) throw new Error(`not offloaded: the ${decision.prefer} tier stays with Claude`)
   // The later steps reuse Jev's decision instead of asking again.
   const settled = { ...options, model: undefined, category: decision.category, prefer: decision.prefer ?? 'balanced', jev: false }
   const tried = []
@@ -1104,7 +1109,7 @@ export async function listModels() {
 const USAGE = `Usage:
   node router.mjs "prompt" [--prefer quality|balanced|cheap] [--open] [--model <id>]
                            [--category <name>] [--system "..."] [--max-tokens <n>]
-                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--strict] [--allow-owned] [--no-explore] [--local] [--paid] [--think] [--timeout <seconds>]
+                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--strict] [--allow-owned] [--no-explore] [--local] [--paid] [--offload] [--tier-hint <tier>] [--think] [--timeout <seconds>]
                            [--dry-run] [--json]
   With no --local, --free, --paid or --model, the prompt goes down the default order:
   local Ollama, then the subscription agents the route names (Claude Code, Gemini CLI,
@@ -1135,8 +1140,10 @@ function parse(argv) {
     else if (a === '--strict') opts.strict = true
     else if (a === '--local') opts.local = true
     else if (a === '--paid') opts.paid = true
+    else if (a === '--offload') opts.offload = true
     else if (a === '--json') opts.json = true
     else if (['--prefer', '--model', '--category', '--system', '--team', '--jq'].includes(a)) opts[a.slice(2)] = argv[++i]
+    else if (a === '--tier-hint') opts.tierHint = argv[++i]
     else if (a === '--max-tokens') opts.maxTokens = Number(argv[++i])
     else if (a === '--concurrency') opts.concurrency = Number(argv[++i])
     else if (a === '--timeout') opts.timeoutMs = Number(argv[++i]) * 1000
@@ -1219,7 +1226,7 @@ Tiers: q quality, b balanced, c cheap. * first choice only with --open. Route co
     // A dry run makes no real call, so it isn't logged for the judgement quotient.
     const decision = await plan(prompt, { ...opts, jqLogFile: null })
     if (!defaultOrder(opts)) return console.log(opts.json ? JSON.stringify(decision, null, 2) : `${decision.reason}\n→ ${decision.models.join(' → ')}`)
-    const steps = cascadeSteps(decision).map((s) => (s.via === 'agent' ? `${s.agent.command} (${s.agent.family} subscription)` : s.via === 'paid' ? `paid: ${decision.models.join(', ')}` : s.via))
+    const steps = cascadeSteps(decision, undefined, { offload: opts.offload }).map((s) => (s.via === 'agent' ? `${s.agent.command} (${s.agent.family} subscription)` : s.via === 'paid' ? `paid: ${decision.models.join(', ')}` : s.via))
     return console.log(opts.json ? JSON.stringify({ ...decision, order: steps }, null, 2) : `${decision.reason}\norder: ${steps.join(' → ')}`)
   }
   const startedAt = Date.now()

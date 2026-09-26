@@ -56,6 +56,14 @@ import {
   DEFAULT_POLICY,
   decisive,
   fitsQuestion,
+  ROUTE_CATEGORIES,
+  ROUTE_TIERS,
+  looksLikeProjectWork,
+  offloadable,
+  offloadContext,
+  offloadShown,
+  readRoute,
+  routeQuestions,
 } from '../hooks/policy.ts'
 import type { Candidate, PolicyConfig, Skill, Wide } from '../hooks/policy.ts'
 
@@ -604,4 +612,59 @@ test('appendRecord keeps earlier lines and drops a torn one', () => {
   const second = appendRecord(first + '{"torn":', { ...load, skill: 'b' })
   const lines = second.trim().split('\n').map((line) => JSON.parse(line))
   expect(lines.map((line) => line.skill)).toEqual(['a', 'b'])
+})
+
+// ---------- the model router on every prompt ----------
+
+test('the router questions ride on the ranking request only when asked for', () => {
+  const skills = [{ name: 'a', description: 'A.' }] as Skill[]
+  expect(Object.keys(wideQuestions('typesafe', skills)).some((k) => k.startsWith('route::'))).toBe(false)
+  const q = wideQuestions('typesafe', skills, true)
+  expect(q['route::needs_tools']).toEqual(routeQuestions('typesafe')['route::needs_tools'])
+  expect(Object.keys((q['route::category'] as { criteria: object }).criteria)).toEqual(Object.keys(ROUTE_CATEGORIES))
+})
+
+test("the router's task kinds and tiers match router.mjs", async () => {
+  const source = await Bun.file(new URL('../skills/model-router/scripts/router.mjs', import.meta.url)).text()
+  for (const [key, text] of Object.entries({ ...ROUTE_CATEGORIES, ...ROUTE_TIERS })) expect(source).toContain(`${key}: '${text}'`)
+})
+
+test('readRoute reads the three answers, and nulls what is missing', () => {
+  const reply = JSON.stringify({ answers: { 'route::needs_tools': { noul: 0.05 }, 'route::category': { choice: 'general' }, 'route::tier': { choice: 'cheap' } } })
+  expect(readRoute(reply)).toEqual({ needsTools: 0.05, category: 'general', tier: 'cheap' })
+  expect(readRoute(JSON.stringify({ answers: { 'route::category': { choice: 'nonsense' } } }))).toEqual({ needsTools: null, category: null, tier: null })
+})
+
+test('project work is never offloaded, whatever Jev says', () => {
+  for (const text of ['fix the bug in router.mjs', 'run the tests', 'what does this function do?', 'update the dashboard', 'look at plugins/usage-telemetry', '```js\nx()\n```', 'git status please', '@src/a.ts explain'])
+    expect(looksLikeProjectWork(text)).toBe(true)
+  for (const text of ['What is the capital of France?', 'Explain the CAP theorem in two sentences', 'Give me a regex for a UK postcode', 'Translate "good morning" into Spanish'])
+    expect(looksLikeProjectWork(text)).toBe(false)
+})
+
+test('offloadable: only a confident no-tools, non-quality prompt with no skill', () => {
+  const route = { needsTools: 0.05, category: 'general', tier: 'cheap' }
+  const base = { pickedSkill: false, attachments: false }
+  expect(offloadable(route, 'What is the capital of France?', base).ok).toBe(true)
+  expect(offloadable({ ...route, needsTools: 0.5 }, 'What is the capital of France?', base).reason).toMatch(/needs tools/)
+  expect(offloadable({ ...route, tier: 'quality' }, 'What is the capital of France?', base).reason).toBe('quality tier')
+  expect(offloadable(route, 'What is the capital of France?', { ...base, pickedSkill: true }).ok).toBe(false)
+  expect(offloadable(route, 'What is the capital of France?', { ...base, attachments: true }).ok).toBe(false)
+  expect(offloadable(route, 'claude: What is the capital of France?', base).reason).toBe('the user asked for Claude')
+  expect(offloadable(null, 'hi', base).ok).toBe(false)
+})
+
+test("offloadContext hands Claude the router's answers since its last turn", () => {
+  expect(offloadContext([])).toBeNull()
+  const note = offloadContext([{ prompt: 'capital of France?', text: 'Paris', model: 'm:free' }])!
+  expect(note).toContain('<router_answers>')
+  expect(note).toContain('answered_by="m:free"')
+  expect(note).toContain('Paris')
+})
+
+test('offloadShown: the answer line by line, and a one-line footer', () => {
+  const shown = offloadShown({ text: 'Paris\n\n- a\n- b\n', model: 'm:free', via: 'free' })
+  expect(shown.lines).toEqual(['Paris', ' ', '- a', '- b'])
+  expect(shown.footer).not.toContain('\n')
+  expect(shown.footer).toContain('m:free')
 })

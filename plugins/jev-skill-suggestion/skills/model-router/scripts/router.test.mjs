@@ -1076,3 +1076,18 @@ test('callRecord keeps which step answered and why the others did not', () => {
   assert.equal(record.prefer, 'cheap')
   assert.deepEqual(record.tried, ['local: Ollama is not running'])
 })
+
+test('offload: local then free only; a quality tier is not offloaded', async () => {
+  assert.deepEqual(cascadeSteps({ category: 'code', prefer: 'cheap' }, CASCADE.owned, { offload: true }).map((s) => s.via), ['local', 'free'])
+  assert.deepEqual(cascadeSteps({ category: 'code', prefer: 'quality' }, CASCADE.owned, { offload: true }), [])
+  const { fetchImpl } = world()
+  await assert.rejects(completeCascade('x', { ...CASCADE, offload: true, jev: false, category: 'code', tierHint: 'quality', fetchImpl, runImpl: noAgents }), /quality tier stays with Claude/)
+})
+
+test('offload: the tier hint is held to the JQ bar, and Jev is not asked again', async () => {
+  const { calls, fetchImpl } = world()
+  await assert.rejects(completeCascade('x', { ...CASCADE, offload: true, jev: false, category: 'code', tierHint: 'cheap', jq: 4, fetchImpl, runImpl: noAgents }), /quality tier stays with Claude/)
+  const ok = await completeCascade('x', { ...CASCADE, offload: true, jev: false, category: 'code', tierHint: 'cheap', fetchImpl, runImpl: noAgents })
+  assert.equal(ok.via, 'free')
+  assert.ok(!calls.some((c) => c.url.endsWith('/systemone')))
+})

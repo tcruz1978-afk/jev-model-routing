@@ -428,8 +428,8 @@ function yesNo(provider: Provider, instructions: string): Record<string, unknown
   return { type: provider === 'typesafe' ? 'noul' : 'boolean', instructions }
 }
 
-/** The first request's `questions`: the ranking and the gate. */
-export function wideQuestions(provider: Provider, skills: readonly Skill[]): Record<string, unknown> {
+/** The first request's `questions`: the ranking and the gate, and with `route` the model router's three. */
+export function wideQuestions(provider: Provider, skills: readonly Skill[], route = false): Record<string, unknown> {
   const criteria: Record<string, string> = {}
   for (const skill of skills) criteria[skill.name] = skill.description || `A skill named ${skill.name}.`
   const questions: Record<string, unknown> = {
@@ -443,6 +443,7 @@ export function wideQuestions(provider: Provider, skills: readonly Skill[]): Rec
   for (const [key, text] of Object.entries(GATE_QUESTIONS)) {
     questions[`gate::${key}`] = yesNo(provider, text)
   }
+  if (route) Object.assign(questions, routeQuestions(provider))
   return questions
 }
 
@@ -1329,4 +1330,104 @@ export function jqOutcomeFor(
   }
   if (looksLikeCorrection(text)) return null
   return { outcome: 'kept' }
+}
+
+// ---------- the model router, on every prompt ----------
+
+/** The model router's task kinds and tiers (router.mjs `CATEGORIES`, `TIER_CRITERIA`; a test keeps them equal). */
+export const ROUTE_CATEGORIES: Record<string, string> = {
+  code: 'Writing, reading, debugging, reviewing or explaining source code, scripts, queries or configuration.',
+  reasoning: 'Maths, logic, multi-step analysis, planning or weighing trade-offs where careful step-by-step thinking matters.',
+  writing: 'Drafting or editing prose for people: emails, posts, copy, stories, summaries in a particular voice.',
+  long_context: 'Working over a very long input: whole documents, transcripts, codebases or many files at once.',
+  quick: 'A short, simple question or small transformation a fast small model answers well.',
+  general: 'General knowledge, explanation or conversation that fits none of the other kinds.',
+}
+export const ROUTE_TIERS: Record<string, string> = {
+  quality: 'Hard, high-stakes or subtle: worth the strongest and most expensive model.',
+  balanced: 'Ordinary difficulty: a capable mid-priced model does it well.',
+  cheap: 'Easy or routine: the cheapest adequate model is fine.',
+}
+
+/**
+ * Asked in the same request as the skill ranking, so routing adds no round
+ * trip: whether the prompt needs Claude Code's hands, what kind of task it is,
+ * and how much model it deserves.
+ */
+export function routeQuestions(provider: Provider): Record<string, unknown> {
+  return {
+    'route::needs_tools': yesNo(
+      provider,
+      "Does answering the user's latest request need anything beyond general knowledge and the text of the request itself: reading or changing their files or repository, running commands, using tools or connectors, or what was said earlier in this conversation?",
+    ),
+    'route::category': { type: 'choice', instructions: 'What kind of task is the user asking for?', criteria: ROUTE_CATEGORIES },
+    'route::tier': { type: 'choice', instructions: 'How capable a model does this request need to be answered well?', criteria: ROUTE_TIERS },
+  }
+}
+
+export type Route = { needsTools: number | null; category: string | null; tier: string | null }
+
+/** Reads the router's answers out of the first request's reply; nulls for any not answered. */
+export function readRoute(responseText: string): Route | null {
+  const answers = answersOf(responseText)
+  if (!answers) return null
+  const choice = (key: string, allowed: Record<string, string>) => {
+    const answer = answers[key]
+    return answer && typeof answer.choice === 'string' && answer.choice in allowed ? answer.choice : null
+  }
+  return { needsTools: yesNoOf(answers['route::needs_tools']), category: choice('route::category', ROUTE_CATEGORIES), tier: choice('route::tier', ROUTE_TIERS) }
+}
+
+/** A prompt the user sends to Claude on purpose: `claude:` first. */
+export const FOR_CLAUDE = /^\s*claude:/i
+
+/** How sure Jev must be that no tools are needed before the router answers in Claude's place. */
+export const OFFLOAD_MAX_NEEDS_TOOLS = 0.2
+const OFFLOAD_MAX_CHARS = 1500
+
+/**
+ * Whether a prompt is plainly work in the user's project, read from its text
+ * alone: a path or file name, a code block, or a word about the repo, files,
+ * commands or git. Such a prompt is never offloaded, whatever Jev says.
+ */
+export function looksLikeProjectWork(text: string): boolean {
+  if (text.length > OFFLOAD_MAX_CHARS) return true
+  if (/```/.test(text)) return true
+  if (/(^|\s)[.~]?\/?[\w.-]+\/[\w./-]+/.test(text)) return true
+  if (/\b[\w-]+\.(ts|tsx|js|mjs|cjs|jsx|py|rb|go|rs|java|kt|cs|cpp|c|h|json|ya?ml|toml|md|sql|sh|html|css|lock|env)\b/i.test(text)) return true
+  if (/(^|\s)@\S/.test(text)) return true
+  return /\b(this|the|my|our) (repo|repository|codebase|project|file|files|folder|directory|branch|pr|pull request|commit|tests?|build|app|code|function|class|script|dashboard|artifact|config)\b|\b(commit|push|merge|rebase|deploy|install|run|execute|refactor|fix|edit|update|change|delete|rename|create|add|implement|open|read|check)\b.*\b(file|repo|code|branch|test|pr|function|script|project|app)\b|\bgit\b|\bnpm\b|\bbun\b|\bnode\b|\bclaude code\b/i.test(text)
+}
+
+/**
+ * Whether the router answers this prompt instead of Claude: Jev confident it
+ * needs no tools, a task kind and a tier that isn't quality, no skill picked,
+ * nothing attached, and no sign of project work in the text.
+ */
+export function offloadable(route: Route | null, text: string, { pickedSkill, attachments }: { pickedSkill: boolean; attachments: boolean }): { ok: boolean; reason: string } {
+  if (FOR_CLAUDE.test(text)) return { ok: false, reason: 'the user asked for Claude' }
+  if (!route || route.needsTools === null || !route.category || !route.tier) return { ok: false, reason: 'no routing answer from Jev' }
+  if (pickedSkill) return { ok: false, reason: 'a skill was picked' }
+  if (attachments) return { ok: false, reason: 'the prompt has attachments' }
+  if (route.tier === 'quality') return { ok: false, reason: 'quality tier' }
+  if (route.needsTools > OFFLOAD_MAX_NEEDS_TOOLS) return { ok: false, reason: `needs tools (${Math.round(route.needsTools * 100)}%)` }
+  if (looksLikeProjectWork(text)) return { ok: false, reason: 'reads as project work' }
+  return { ok: true, reason: `${route.category} / ${route.tier}, no tools (${Math.round((1 - route.needsTools) * 100)}%)` }
+}
+
+/**
+ * The router's answer as shown in place of Claude's turn: its lines, each
+ * printed as a transcript line (a dropped prompt's reason is one line only),
+ * and the one-line footer that goes out as the drop's reason.
+ */
+export function offloadShown(answer: { text: string; model: string; via: string }): { lines: string[]; footer: string } {
+  const lines = answer.text.trim().split(/\r?\n/).slice(0, 200).map((line) => line.slice(0, 2000) || ' ')
+  return { lines, footer: `answered by ${answer.model} (${answer.via}, via the model router); Claude was not asked. Start a prompt with "claude:" to ask Claude.` }
+}
+
+/** Context for the next prompt that reaches Claude: what the router answered in between. */
+export function offloadContext(entries: readonly { prompt: string; text: string; model: string }[]): string | null {
+  if (!entries.length) return null
+  const shown = entries.slice(-3).map((e) => `<exchange answered_by="${e.model}">\n<user>${e.prompt.slice(0, 2000)}</user>\n<answer>${e.text.slice(0, 4000)}</answer>\n</exchange>`)
+  return `<router_answers>\nThe user asked these outside this conversation and the model router answered them with another model; they are context for what follows.\n${shown.join('\n')}\n</router_answers>`
 }
