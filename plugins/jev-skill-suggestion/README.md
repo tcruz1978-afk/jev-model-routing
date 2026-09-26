@@ -25,7 +25,7 @@ When Jev is sure a prompt needs no tools (at least 80%), no skill was picked, th
 
 - Start a prompt with `claude:` to send it to Claude anyway. The JQ log records that as the router's answer being overruled.
 - `offload: false` turns this off; `offloadTimeoutMs` (default 60000) caps how long the router may take.
-- Every session gets Jev and the router. To measure what they add, set `compareOff` (share of sessions with neither) and `compareNoRouter` (share with Jev but no router), for example 0.2 each; both default to 0.
+- 1 session in 10 runs without Jev or the router (`compareOff`, default 0.1), so the dashboard can compare sessions with and without them; the log says so when a session is in that group. `compareNoRouter` (default 0) holds out a share with Jev but no router. Set both to 0 to turn the comparison off.
 
 ## Quick start
 
