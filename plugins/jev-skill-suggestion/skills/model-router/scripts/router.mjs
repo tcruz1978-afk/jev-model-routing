@@ -536,12 +536,16 @@ export async function complete(prompt, options = {}) {
   }
   let { response, body, status, retried } = await send(decision.models)
   if (status === 402) credit = await creditCheck()
-  // Out of credit: the same category on free models, unless a model was named.
-  if (status === 402 && !options.free && !options.model) {
+  // Out of credit: the same category on free models, so work never stalls on
+  // credit. A named model falls back too, and says so, unless `strict` asks
+  // for that model or nothing (the review gate uses it to keep its reviewers
+  // in their own model families).
+  if (status === 402 && !options.free && !(options.model && options.strict)) {
     outOfCredit = true
     const decidedBy = decision.reason.split(' · ').find((part) => part.startsWith('decided by'))
-    decision = { ...route(prompt, { ...options, category: decision.category, free: true }), jev: decision.jev }
-    decision.reason = [decision.reason, decidedBy, 'out of credit, switched to free models'].filter(Boolean).join(' · ')
+    const named = options.model ? `${options.model} is out of credit` : null
+    decision = { ...route(prompt, { ...options, model: undefined, category: decision.category, free: true }), jev: decision.jev }
+    decision.reason = [decision.reason, decidedBy, named, 'out of credit, switched to free models'].filter(Boolean).join(' · ')
     decision = explore(decision, options)
     ;({ response, body, status, retried } = await send(decision.models))
   }
@@ -955,7 +959,7 @@ export async function listModels() {
 const USAGE = `Usage:
   node router.mjs "prompt" [--prefer quality|balanced|cheap] [--open] [--model <id>]
                            [--category <name>] [--system "..."] [--max-tokens <n>]
-                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--no-explore] [--local] [--think] [--timeout <seconds>]
+                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--strict] [--no-explore] [--local] [--think] [--timeout <seconds>]
                            [--dry-run] [--json]
   node router.mjs sweep "prompt"  send it down every category × tier route, 4 at a time
                            (accepts --open, --free, --local, --category, --prefer, --max-tokens,
@@ -976,6 +980,7 @@ function parse(argv) {
     else if (a === '--no-explore') opts.explore = false
     else if (a === '--think') opts.think = true
     else if (a === '--free') opts.free = true
+    else if (a === '--strict') opts.strict = true
     else if (a === '--local') opts.local = true
     else if (a === '--json') opts.json = true
     else if (['--prefer', '--model', '--category', '--system', '--team', '--jq'].includes(a)) opts[a.slice(2)] = argv[++i]

@@ -386,9 +386,17 @@ test('free routes: every model is a free one, 3 at most, open-only honoured', ()
   }
 })
 
-test('a named model is never swapped for a free one', async () => {
+test('out of credit, a named model falls back to free models and says so', async () => {
   const { fetchImpl } = outOfCredit()
-  await assert.rejects(complete('hi', { env: OR, fetchImpl, model: 'openai/gpt-6-sol' }), /402/)
+  const r = await complete('hi', { env: OR, fetchImpl, model: 'openai/gpt-6-sol' })
+  assert.equal(r.outOfCredit, true)
+  assert.ok(r.models.every((id) => id === 'openrouter/free' || id.endsWith(':free')), r.models.join())
+  assert.match(r.reason, /openai\/gpt-6-sol is out of credit/)
+})
+
+test('with strict, a named model is never swapped for a free one', async () => {
+  const { fetchImpl } = outOfCredit()
+  await assert.rejects(complete('hi', { env: OR, fetchImpl, model: 'openai/gpt-6-sol', strict: true }), /402/)
 })
 
 test('complete flags an answer cut short by max_tokens', async () => {
@@ -492,7 +500,7 @@ test('a fallback or a 402 reports which credit ran out', async () => {
   const clean = await complete('hi', { ...QUICK, fetchImpl: scripted([answer(firstQuick)], empty).fetchImpl })
   assert.equal(clean.creditShort, null, 'no fallback, no credit check')
   const named = scripted([[402, { error: { code: 402, message: 'This request requires more credits' } }]], empty)
-  await assert.rejects(complete('hi', { env: OR, model: 'moonshotai/kimi-k3', fetchImpl: named.fetchImpl }), /account has no credit left/)
+  await assert.rejects(complete('hi', { env: OR, model: 'moonshotai/kimi-k3', strict: true, fetchImpl: named.fetchImpl }), /account has no credit left/)
 })
 
 test('sweep runs at most `concurrency` routes at once and checks credit once', async () => {
