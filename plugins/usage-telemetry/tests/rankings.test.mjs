@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { DAY } from '../scripts/checks.mjs'
 import { eventFromJq, jqLogPaths } from '../scripts/lib.mjs'
 import { compact } from '../scripts/live.mjs'
-import { MONTH_MS, categoryLabel, efficiency, leaderboard, modelKey, modelStats, paidSummary, planShare, rankModels, topByTask } from '../scripts/rankings.mjs'
+import { MONTH_MS, categoryLabel, contribution, efficiency, leaderboard, modelKey, modelStats, paidSummary, planShare, rankModels, topByTask } from '../scripts/rankings.mjs'
 import { buildPayload, claudeRates, readPlan } from '../scripts/dashboard.mjs'
 
 const END = Date.parse('2026-09-26T18:00:00Z')
@@ -145,4 +145,42 @@ test('the build carries the plan and Claude prices for the page', () => {
   const P = buildPayload([{ id: 'a', kind: 'api', ts: at(10), session: 's', host: 'cloud', model: 'claude-opus-5-5', cost_usd: 1 }], { now: END })
   assert.deepEqual(P.plan, { name: 'Max 20x', monthlyUsd: 200 })
   assert.ok(P.rates['claude-haiku-4-5'])
+})
+
+test('contribution: each part as KPIs, the three together, and spend nothing explains kept apart', () => {
+  const { rows, turns } = sample()
+  const { from, to, cur } = span(rows)
+  const rates = { 'claude-opus-5-5': { input: 4, output: 20 } }
+  const K = contribution({ rows, cur, tcur: turns, from, to, rates })
+  // Jev: 4 decisions on s1's first 4 requests of 15.
+  assert.deepEqual([K.jev.decisions, K.jev.covered, K.jev.requests], [4, 4, 15])
+  assert.ok(Math.abs(K.jev.coverage - 4 / 15) < 1e-9)
+  assert.equal(K.jev.accuracy, 1, 'no pick flagged wrong')
+  assert.equal(K.jev.cost, null, 'no decision reported a cost: unknown, never zero')
+  assert.equal(K.total.jevCostMissing, true)
+  assert.equal(K.jev.fair, false)
+  assert.equal(K.jev.thin, true)
+  assert.ok(K.jev.quiet, 'prompts came after the last decision')
+  // Router: 1 of 16 model calls.
+  assert.ok(Math.abs(K.router.offload - 1 / 16) < 1e-9)
+  assert.ok(Math.abs(K.router.saved - 0.013) < 1e-12)
+  assert.equal(K.router.quality, 1)
+  // Total: the key grew $2.001; the router explains $0.001; the rest is kept apart.
+  assert.ok(Math.abs(K.total.cost - 0.001) < 1e-12)
+  assert.ok(Math.abs(K.total.net - 0.012) < 1e-12)
+  assert.ok(Math.abs(K.total.unexplained - 2) < 1e-9, 'never charged to Jev or the router')
+  assert.equal(K.jq.tracked, false)
+
+  // Once Jev's decisions carry their cost, it is counted and the unexplained part shrinks.
+  const ev = [
+    ...Array.from({ length: 3 }, (_, i) => ({ id: `d${i}`, kind: 'jev.decision', ts: at(300 - i * 20), session: 's1', host: 'cloud', skill: 'pdf', cost_usd: 0.25, data: { decidedBy: 'jev' } })),
+    { id: 'k0', kind: 'openrouter.key', ts: at(400), host: 'cloud', data: { total_usage: 1, total_credits: 20 } },
+    { id: 'k1', kind: 'openrouter.key', ts: at(5), host: 'cloud', data: { total_usage: 2, total_credits: 20 } },
+  ]
+  const P = compact(ev, { now: END })
+  const Q = contribution({ rows: P.rows, cur: P.rows, tcur: P.turns, from, to })
+  assert.equal(Q.jev.cost, 0.75)
+  assert.equal(Q.total.jevCostMissing, false)
+  assert.ok(Math.abs(Q.total.unexplained - 0.25) < 1e-9)
+  assert.ok(Math.abs(Q.total.net + 0.75) < 1e-9, 'cost with no measured saving is a negative net')
 })

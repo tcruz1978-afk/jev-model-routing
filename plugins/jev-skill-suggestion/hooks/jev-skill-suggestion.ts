@@ -110,6 +110,7 @@ import {
   readSkillSettings,
   modelInvocable,
   readWide,
+  costOf,
   rerankQuestions,
   requestBody,
   requestHeaders,
@@ -529,6 +530,13 @@ export const register: Register = (on, options) => {
     }
     const context = previous ? recentContextOf(previous.prompt, previous.skill) : ''
 
+    // What this decision's calls cost, as OpenRouter reports it (null: nothing reported).
+    let costUsd: number | null = null
+    const addCost = (text: string) => {
+      const cost = costOf(text)
+      if (cost !== null) costUsd = (costUsd ?? 0) + cost
+    }
+
     /** One request to the active backend, or null on timeout, error or a non-2xx. */
     const ask = async (
       prompt: string,
@@ -545,7 +553,10 @@ export const register: Register = (on, options) => {
           }),
           $.clock.sleep(timeoutMs),
         ])
-        if (response && response.ok) return response.text
+        if (response && response.ok) {
+          addCost(response.text)
+          return response.text
+        }
         if (response) {
           $.ui.log(`[jev-skill-suggestion] ${active} responded ${response.status} to the ${what}`)
           const outage = jevUnavailable(response.status, active, isOpenRouterUrl(url))
@@ -685,7 +696,10 @@ export const register: Register = (on, options) => {
             }),
             $.clock.sleep(Math.max(timeoutMs, 3000)),
           ])
-          if (response && response.ok) wide = builtinWide(readFallback(response.text, skills))
+          if (response && response.ok) {
+            addCost(response.text)
+            wide = builtinWide(readFallback(response.text, skills))
+          }
           else if (response) $.ui.log(`[jev-skill-suggestion] backup ${model} responded ${response.status}`)
           else $.ui.log(`[jev-skill-suggestion] backup ${model} timed out`)
           if (!response || response.status !== 402 || !fallbackFreeModel || model === fallbackFreeModel) break
@@ -835,6 +849,7 @@ export const register: Register = (on, options) => {
       rerankMs,
       injected: injectContent && pick !== null,
       jqId,
+      costUsd,
     }, logDecisions)
     if (routing && decidedBy === 'jev') {
       const verdict = offloadable(route, e.text, { pickedSkill: pick !== null, attachments: Boolean(e.attachments?.length) })

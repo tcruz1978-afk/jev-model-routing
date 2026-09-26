@@ -556,6 +556,22 @@ function yesNoOf(answer: Record<string, unknown> | undefined): number | null {
  * choice alone, at the reported confidence or none. The gate is the mean of
  * the oriented nouls that were answered, or null when none was.
  */
+/**
+ * What one OpenRouter answer says it cost, in USD (`usage.cost`, which
+ * OpenRouter reports on its responses), or null when it says nothing. The
+ * usage dashboard adds these up per decision, so Jev's own spend is measured
+ * rather than guessed from the key's running total.
+ */
+export function costOf(responseText: string): number | null {
+  try {
+    const usage = (JSON.parse(responseText) as { usage?: { cost?: unknown; total_cost?: unknown } })?.usage
+    const cost = usage?.cost ?? usage?.total_cost
+    return typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null
+  } catch {
+    return null
+  }
+}
+
 export function readWide(responseText: string): Wide | null {
   const answers = answersOf(responseText)
   const which = answers?.which
@@ -1154,6 +1170,8 @@ export interface DecisionRecord {
   injected: boolean
   /** The judgement-quotient record this decision was logged under, or null when none was (see `jqConfidence`). */
   jqId: string | null
+  /** What this decision's OpenRouter calls cost in USD, as OpenRouter reported it; null when it reported nothing. */
+  costUsd?: number | null
 }
 
 /** A skill the model loaded, and whether it was the one suggested. */

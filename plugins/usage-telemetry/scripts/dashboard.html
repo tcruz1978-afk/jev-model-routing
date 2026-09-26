@@ -281,6 +281,9 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
 .effc .eh b { font-size: 16px; font-weight: 650; }
 .pill { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
 .pill.good { color: var(--good); border-color: currentColor; }
+td .good { color: var(--good); font-weight: 600; }
+td .bad { color: var(--bad); font-weight: 600; }
+#rk-contrib td.l { min-width: 180px; }
 .effc p { margin: 0; font-size: 13.5px; line-height: 1.55; }
 .effc dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; margin: 0; font-size: 13px; }
 .effc dt { color: var(--muted); }
@@ -378,8 +381,10 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
       <div class="perf" id="rk-perf"></div>
     </section>
     <section class="card" aria-labelledby="h-eff">
-      <div class="card-top"><div><h2 id="h-eff">Is it making the work more efficient?</h2><p class="note">What Jev, the model router and JQ cost, and how the requests they touched went. These are comparisons, not proof of cause.</p></div></div>
-      <div class="eff" id="rk-eff"></div>
+      <div class="card-top"><div><h2 id="h-eff">Contribution: Jev, the model router and JQ</h2><p class="note" id="rk-eff-note"></p></div></div>
+      <div class="tiles" id="rk-contrib-total"></div>
+      <div id="rk-contrib-notices" style="margin-top:12px"></div>
+      <div class="tbox" id="rk-contrib"></div>
     </section>
   </section>
 
@@ -1196,7 +1201,7 @@ const dimOfKey = (k) => (k.startsWith('r:') ? 'or:' + k.slice(2) : k.slice(2));
 const swatch = (key) => `<span class="sw" style="background:${colorOf(key)}"></span>`;
 const viaWords = (s) => (s.via === 'openrouter' ? `via the router${String(s.model ?? '').includes('/') ? ' · ' + esc(s.model.split('/')[0]) : ''}` : 'Anthropic');
 const modelLogs = (key) => toLogs({ model: [dimOfKey(key)], type: ['model', 'router'] });
-const pctOf = (r) => (r === null || r === undefined ? '—' : r > 0 && r < 0.001 ? 'under 0.1%' : pct(r));
+const pctOf = (r) => (r === null || r === undefined ? '—' : r > 0 && r < 0.001 ? 'under 0.1%' : r > 0 && r < 0.01 ? (r * 100).toFixed(1) + '%' : pct(r));
 const INFO_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--warn)" stroke-width="1.5"/><line x1="8" y1="4.5" x2="8" y2="9" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.3" r="0.9" fill="var(--warn)"/></svg>';
 
 function measureText(id, v) {
@@ -1279,28 +1284,44 @@ function rankingsTab(C) {
       (K.unranked.length ? `<div class="sep">Not ranked</div>` + K.unranked.map((r) => `<div class="pr thin" role="button" tabindex="0" data-model="${esc(r.key)}"><span class="r">–</span><span class="n">${esc(r.name)}</span><span class="track"></span><span class="x">${r.value === null ? 'no data for this' : `too few to judge (${esc(plural(r.n, nWord(r)))})`}</span></div>`).join('') : '')
     : '<p class="empty">No models in this period.</p>';
 
-  // 5. Efficiency.
-  const E = efficiency({ rows: DATA.rows, cur, tcur, from: P.from, to: P.to, rates: DATA.rates ?? {} });
-  const J = E.jev, Rt = E.router, Q = E.jq;
-  const pill = (thin, ok) => `<span class="pill${ok ? ' good' : ''}">${thin ? 'too few to judge' : ok ? 'saving' : 'judged'}</span>`;
-  const jevWho = J.tiers.length === 1 ? `all made by ${J.tiers[0].label === 'Jev' ? 'Jev itself' : J.tiers[0].label.toLowerCase()}` : J.tiers.map((t) => `${n0(t.n)} by ${t.label === 'Jev' ? 'Jev' : t.label.toLowerCase()}`).join(', ');
-  $('rk-eff').innerHTML = [
-    `<div class="effc"><div class="eh"><b>Jev</b>${J.decisions ? pill(J.thin) : '<span class="pill">no decisions</span>'}</div>` +
-      (J.decisions ? `<p>${esc(plural(J.decisions, 'decision'))}, ${esc(jevWho)}. It picked a skill ${esc(plural(J.picked.n, 'time'))}${J.picked.misses ? `; ${esc(n0(J.picked.misses))} of those ${J.picked.misses === 1 ? 'was' : 'were'} flagged wrong` : ''}.</p>` +
-        `<dl><dt>Landed, with a pick</dt><dd>${esc(J.picked.known ? `${n0(J.picked.landed)} of ${n0(J.picked.known)}` : '—')}</dd><dt>Landed, no pick</dt><dd>${esc(J.none.known ? `${n0(J.none.landed)} of ${n0(J.none.known)}` : '—')}</dd>` +
-        (J.unattributed !== null ? `<dt>OpenRouter spend not tied to a routed call</dt><dd>${esc(usd(J.unattributed))}</dd><dt>That per decision, if it's all Jev</dt><dd>${esc(J.perDecision === null ? '—' : 'about ' + usd(J.perDecision))}</dd>` : '') + '</dl>'
-        : '<p>Jev made no decisions in this period.</p>') + '</div>',
-    `<div class="effc"><div class="eh"><b>Model router</b>${Rt.calls ? pill(Rt.thin, !Rt.thin && Rt.saved > 0) : '<span class="pill">no calls</span>'}</div>` +
-      (Rt.calls ? `<p>${esc(plural(Rt.calls, 'prompt'))} sent to other models instead of Claude.</p><dl><dt>Billed by OpenRouter</dt><dd>${esc(usd(Rt.billed))}</dd>` +
-        (Rt.asClaude !== null ? `<dt>Same tokens on ${esc(modelName(Rt.reference))}, pay-as-you-go</dt><dd>${esc(usd(Rt.asClaude))}</dd><dt>Difference</dt><dd class="${Rt.saved > 0 ? 'good' : ''}">${esc(Rt.saved >= 0 ? `${usd(Rt.saved)} less` : `${usd(-Rt.saved)} more`)}</dd>` : '') +
-        `<dt>Answered without an error or backup</dt><dd>${esc(`${n0(Rt.answered)} of ${n0(Rt.calls)}`)}</dd></dl>`
-        : '<p>The model router sent nothing to OpenRouter in this period.</p>') + '</div>',
-    `<div class="effc${Q.tracked ? '' : ' off'}"><div class="eh"><b>JQ</b>${Q.tracked ? (Q.decisions ? pill(Q.thin) : '<span class="pill">no calls</span>') : '<span class="pill">not tracked yet</span>'}</div>` +
-      (Q.tracked
-        ? `<p>${esc(plural(Q.decisions, 'judgement call'))} logged in this period.</p><dl><dt>Kept</dt><dd>${esc(n0(Q.kept))}</dd><dt>Overruled</dt><dd>${esc(n0(Q.overruled))}</dd><dt>Asked instead</dt><dd>${esc(n0(Q.asked))}</dd><dt>No outcome yet</dt><dd>${esc(n0(Q.open))}</dd>` +
-          (Q.keptRate !== null ? `<dt>Kept, of those judged</dt><dd>${esc(pct(Q.keptRate))}</dd><dt>How sure it said it was</dt><dd>${esc(pct(Q.sureness))}</dd>` : '') + '</dl>'
-        : '<p>How often judgement calls were kept or overruled. The collector now sends them; they show here after the next run on each machine.</p>') + '</div>',
-  ].join('');
+  // 5. Contribution: each part as KPIs, and the three together.
+  const CB = contribution({ rows: DATA.rows, cur, tcur, from: P.from, to: P.to, rates: DATA.rates ?? {} });
+  const Jv = CB.jev, Rt = CB.router, Q = CB.jq, Tt = CB.total;
+  const judged = Tt.judged && !Tt.jevCostMissing;
+  $('rk-eff-note').textContent = `Cost is what was measured; savings are what can be measured today. Jev's and JQ's benefit needs an on/off comparison, so "with against without" below is not a fair test yet. ${words.cur.charAt(0).toUpperCase() + words.cur.slice(1)}.`;
+  const tileHtml = (t) => `<div class="tile${t.warn ? ' warn' : ''}"><div class="lab">${esc(t.lab)}</div><div class="big">${esc(t.big)}</div>${t.ds.map((d) => `<div class="ds">${d}</div>`).join('')}</div>`;
+  $('rk-contrib-total').innerHTML = [
+    { lab: 'Net contribution, all three', big: (Tt.net >= 0 ? '+' : '−') + usd(Math.abs(Tt.net)), ds: [judged ? 'Measured savings less measured cost.' : "<b class=\"warn\">Can't be judged yet:</b> too little data, and Jev's savings aren't measured."] },
+    { lab: 'Measured cost', big: usd(Tt.cost), ds: [`Jev: <b>${Jv.cost === null ? 'not reported yet' : esc(usd(Jv.cost))}</b> · router: <b>${esc(usd(Rt.cost))}</b> · JQ: <b>$0</b>`] },
+    { lab: 'Measured savings', big: usd(Tt.saved), ds: [`The router, against the same tokens on ${esc(Rt.reference ? modelName(Rt.reference) : 'Claude')} at pay-as-you-go prices.`] },
+    { lab: 'Requests they touched', big: Tt.share === null ? '—' : pct(Tt.share), ds: [`${esc(n0(Tt.touched))} of ${esc(plural(Tt.requests, 'request'))} had a Jev decision or a routed call.`] },
+  ].map(tileHtml).join('');
+  const notes = [];
+  if (Jv.quiet) notes.push(`Jev's decision log went quiet after ${shortTime(Jv.quiet.since)}: ${plural(Jv.quiet.prompts, 'request')} came after it with no decision logged.`);
+  if (Tt.unexplained !== null && Tt.unexplained >= 0.01) notes.push(`${usd(Tt.unexplained)} of OpenRouter spend on your key isn't explained by Jev's reported costs or the router's calls, so it isn't charged to either. Something else may be using the key${Tt.jevCostMissing ? ", or Jev's decisions from before this release didn't report their cost" : ''}.`);
+  if (Tt.jevCostMissing) notes.push(`${plural(Jv.decisions - Jv.priced, 'Jev decision')} in this period didn't report a cost (decisions log their cost from this release on).`);
+  $('rk-contrib-notices').innerHTML = notes.map((n) => `<p class="notice">${INFO_ICON}<span>${esc(n)}</span></p>`).join('');
+  const state = (s) => `<span class="pill${s === 'saving' ? ' good' : ''}">${esc(s)}</span>`;
+  const verdictOf = (thin, tracked, net) => (!tracked ? 'not tracked yet' : thin ? 'too few to judge' : net > 0 ? 'saving' : net < 0 ? 'costing' : 'even');
+  const vsText = (a, b) => `${a.known ? `${n0(a.landed)} of ${n0(a.known)} landed` : 'no outcomes'} <span class="muted">vs</span> ${b.known ? `${n0(b.landed)} of ${n0(b.known)}` : 'none'}`;
+  const bad = (cond, text) => (cond ? `<span class="bad">${text}</span>` : text);
+  const rowsK = [
+    ['What it does', 'Picks the skill for each request', 'Sends prompts to cheaper models', 'Checks judgement calls against what happened'],
+    ['Measured cost', Jv.cost === null ? `<span class="muted">not reported yet</span>` : esc(usd(Jv.cost)) + `<span class="muted"> · ${esc(n0(Jv.priced))} priced</span>`, esc(usd(Rt.cost)), '$0 <span class="muted">(logging only)</span>'],
+    ['Saved', '<span class="muted">needs an on/off comparison</span>', Rt.calls ? `<span class="${Rt.saved > 0 ? 'good' : ''}">${esc(usd(Rt.saved))}</span> <span class="muted">vs ${esc(Rt.reference ? modelName(Rt.reference) : 'Claude')}</span>` : '<span class="muted">no calls</span>', '<span class="muted">—</span>'],
+    ['Quality', Jv.picks ? bad(Jv.accuracy < 1 - TARGETS.missRate, `${esc(n0(Jv.picks - Jv.wrong))} of ${esc(n0(Jv.picks))} picks right (${esc(pct(Jv.accuracy))})`) + ` <span class="muted">· target ${esc(pct(1 - TARGETS.missRate))}</span>` : '<span class="muted">no picks</span>',
+      Rt.calls ? bad(Rt.quality < 1 - TARGETS.routerRate, `${esc(n0(Rt.answered))} of ${esc(n0(Rt.calls))} answered`) + ` <span class="muted">without an error or backup</span>` : '<span class="muted">no calls</span>',
+      Q.judged ? `${esc(pct(Q.keptRate))} kept <span class="muted">· ${esc(pct(Q.overruleRate))} overruled</span>` : '<span class="muted">no outcomes yet</span>'],
+    ['Coverage', Jv.requests ? bad(Jv.coverage < TARGETS.decideRate, `${esc(n0(Jv.covered))} of ${esc(plural(Jv.requests, 'request'))} (${esc(pct(Jv.coverage))})`) + ` <span class="muted">· target ${esc(pct(TARGETS.decideRate))}</span>` : '<span class="muted">no requests</span>',
+      Rt.offload === null ? '<span class="muted">—</span>' : `${esc(n0(Rt.calls))} of ${esc(n0(Math.round(Rt.calls / (Rt.offload || 1))))} model calls (${esc(pctOf(Rt.offload))})`,
+      Q.tracked ? `${esc(plural(Q.decisions, 'call'))} logged` : '<span class="muted">not tracked yet</span>'],
+    ['Landed, with vs without', `${vsText(Jv.with, Jv.without)} <span class="muted">· not a fair test</span>`, Rt.with.n ? `${Rt.with.known ? `${n0(Rt.with.landed)} of ${n0(Rt.with.known)} landed` : 'no outcomes'} <span class="muted">with a routed call</span>` : '<span class="muted">—</span>', '<span class="muted">—</span>'],
+    ['Typical cost per request, with vs without', `${esc(usd(Jv.with.cost))} <span class="muted">vs</span> ${esc(usd(Jv.without.cost))}`, '<span class="muted">—</span>', '<span class="muted">—</span>'],
+    ['Calibration', '<span class="muted">—</span>', '<span class="muted">—</span>', Q.calibration === null ? '<span class="muted">no outcomes yet</span>' : `${Q.calibration > 0 ? 'over' : 'under'}-sure by ${esc(pct(Math.abs(Q.calibration)))}`],
+    ['Verdict', state(verdictOf(Jv.thin || Jv.cost === null, true, -(Jv.cost ?? 0))), state(verdictOf(Rt.thin, true, Rt.saved - Rt.cost)), state(verdictOf(Q.thin, Q.tracked, 0))],
+  ];
+  $('rk-contrib').innerHTML = `<table><thead><tr><th scope="col">KPI</th><th scope="col" class="l">Jev</th><th scope="col" class="l">Model router</th><th scope="col" class="l">JQ</th></tr></thead><tbody>` +
+    rowsK.map((r) => `<tr><td class="nm"><b>${esc(r[0])}</b></td>${r.slice(1).map((c) => `<td class="l" style="white-space:normal">${c}</td>`).join('')}</tr>`).join('') + '</tbody></table>';
 }
 
 function compareTab(C) {

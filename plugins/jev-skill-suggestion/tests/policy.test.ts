@@ -668,3 +668,13 @@ test('offloadShown: the answer line by line, and a one-line footer', () => {
   expect(shown.footer).not.toContain('\n')
   expect(shown.footer).toContain('m:free')
 })
+
+test('costOf reads what OpenRouter says a call cost, and nothing else', async () => {
+  const { costOf } = await import('../hooks/policy.ts')
+  expect(costOf(JSON.stringify({ choices: [], usage: { prompt_tokens: 10, cost: 0.00042 } }))).toBe(0.00042)
+  expect(costOf(JSON.stringify({ usage: { total_cost: 0.1 } }))).toBe(0.1)
+  expect(costOf(JSON.stringify({ usage: { prompt_tokens: 10 } }))).toBeNull()
+  expect(costOf(JSON.stringify({ usage: { cost: -1 } }))).toBeNull()
+  expect(costOf('not json')).toBeNull()
+})
+
