@@ -668,6 +668,10 @@ test('offloadShown: the answer line by line, and a one-line footer', () => {
   expect(shown.lines).toEqual(['Paris', ' ', '- a', '- b'])
   expect(shown.footer).not.toContain('\n')
   expect(shown.footer).toContain('m:free')
+  // What the user sees: the answer first, then the footer.
+  expect(shown.shown.startsWith('Paris - a - b — ')).toBe(true)
+  expect(shown.shown).not.toContain('\n')
+  expect(shown.shown.endsWith(shown.footer)).toBe(true)
 })
 
 test('costOf reads what OpenRouter says a call cost, and nothing else', async () => {

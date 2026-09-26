@@ -901,10 +901,10 @@ export const register: Register = (on, options) => {
         )
         offloaded = (await jqAppend($, entry)) && entry ? { jqId: entry.id } : null
         routerAnswers.push({ prompt: e.text, text: answer.text, model: answer.model })
-        // Not entered: the answer is shown in place of Claude's turn, line by line.
+        // Not entered: the answer is shown in place of Claude's turn, as the
+        // drop reason, which the apps show too (a ui.log line doesn't reach them).
         const shownAnswer = offloadShown(answer)
-        for (const text of shownAnswer.lines) $.ui.log(text)
-        return { drop: shownAnswer.footer }
+        return { drop: shownAnswer.shown }
       }
     }
     if (block) block = withJevLine(block, line)

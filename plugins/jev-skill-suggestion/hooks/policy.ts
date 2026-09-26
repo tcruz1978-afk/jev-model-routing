@@ -1504,9 +1504,14 @@ export function offloadable(route: Route | null, text: string, { pickedSkill, at
  * printed as a transcript line (a dropped prompt's reason is one line only),
  * and the one-line footer that goes out as the drop's reason.
  */
-export function offloadShown(answer: { text: string; model: string; via: string }): { lines: string[]; footer: string } {
+export function offloadShown(answer: { text: string; model: string; via: string }): { lines: string[]; footer: string; shown: string } {
   const lines = answer.text.trim().split(/\r?\n/).slice(0, 200).map((line) => line.slice(0, 2000) || ' ')
-  return { lines, footer: `answered by ${answer.model} (${answer.via}, via the model router); Claude was not asked. Start a prompt with "claude:" to ask Claude.` }
+  const footer = `answered by ${answer.model} (${answer.via}, via the model router); Claude was not asked. Start a prompt with "claude:" to ask Claude.`
+  // The drop reason is the one thing every surface shows (terminal, desktop and
+  // web apps, -p); a $.ui.log line never reaches an SDK host such as the apps.
+  // It is one line there (a line break arrives as U+FFFD), so lines join with a space.
+  const body = lines.map((line) => line.trim()).filter(Boolean).join(' ').slice(0, 8000)
+  return { lines, footer, shown: `${body} — ${footer}` }
 }
 
 /** Context for the next prompt that reaches Claude: what the router answered in between. */
