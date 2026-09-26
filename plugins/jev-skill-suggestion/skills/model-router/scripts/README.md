@@ -60,8 +60,10 @@ goes to free models for the same kind of task (`free` in `routes.json`). The
 output notes the switch. `--free` uses free models from the start. Jev itself
 has no free version, so while credit is at zero the free model decides instead.
 Free models are rate-limited by OpenRouter: 20 requests a minute, and 50 a day
-(1,000 a day once $10 of credit has been bought). A `--model` you name is never
-swapped for a free one.
+(1,000 a day once $10 of credit has been bought). A `--model` you name falls
+back too, and the reason says `<model> is out of credit`; pass `--strict`
+(`strict: true` from code) to get that model or an error instead, as the
+tc-ventures review gate does to keep each reviewer in its own model family.
 
 ## Track record
 

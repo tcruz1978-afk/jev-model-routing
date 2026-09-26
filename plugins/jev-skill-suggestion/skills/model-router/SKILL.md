@@ -39,7 +39,18 @@ node scripts/router.mjs models <filter>               # browse OpenRouter's cata
 ```
 
 Other flags: `--category <kind>` fixes the task kind, `--system "..."` adds a
-system prompt, `--no-jev` uses the keyword rules only.
+system prompt, `--no-jev` uses the keyword rules only, `--free` uses free
+models from the start, `--strict` keeps a named model even when out of credit.
+
+## When credit runs out
+
+Never stop or wait for credit. On a 402 the router switches to free models on
+its own, a named `--model` included, and says so in its output; pass that on
+("answered by <free model>, because the key is out of credit"). Add
+`--strict` only when the exact model matters more than getting an answer.
+Free models allow 20 requests a minute and 50 a day (1,000 once $10 of credit
+has been bought): on a 429, wait a minute and retry, or name a free model
+from another family (`--model <id>:free`).
 
 ## Judgement quotient (JQ)
 
