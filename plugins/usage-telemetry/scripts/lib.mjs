@@ -84,6 +84,20 @@ export function skillRefusalOf(content) {
   return 'failed'
 }
 
+/**
+ * Whether a user line is something a person typed: its origin is `human`,
+ * or it has no origin and is not the summary a continued chat starts with.
+ * Notifications, peer messages, hook feedback and the like carry another
+ * origin, and Jev does not decide on them, so they are not prompts either.
+ */
+export function typedByPerson(line) {
+  const kind = line?.origin?.kind
+  if (kind) return kind === 'human'
+  const content = line?.message?.content
+  const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c) => (c?.type === 'text' ? c.text ?? '' : '')).join(' ') : ''
+  return !/^\s*This session is being continued from a previous conversation/.test(text)
+}
+
 /** Skill named by a typed `/name` in a user message, or null. */
 export function slashCommandOf(content) {
   const text = typeof content === 'string' ? content : Array.isArray(content) ? content.map((part) => part?.text ?? '').join('\n') : ''
@@ -266,7 +280,7 @@ export function eventsFromTranscript(lines, ctx, pending = {}) {
       }
       // A person's prompt (not a tool result): counted, its kind of work and
       // whether it pushes back on the last answer kept, the words dropped.
-      const text = !ctx.agentId && !line.isMeta ? promptText(content) : null
+      const text = !ctx.agentId && !line.isMeta && typedByPerson(line) ? promptText(content) : null
       if (text !== null && line.uuid) {
         // Held locally for the miss detector (misses.mjs); never shipped.
         if (ctx.promptTexts) ctx.promptTexts[line.uuid] = text

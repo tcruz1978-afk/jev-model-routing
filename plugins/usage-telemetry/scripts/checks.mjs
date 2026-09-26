@@ -103,10 +103,42 @@ export function isStale(generatedAt, now, staleMs = TARGETS.staleMs) {
 const isPrompt = (r) => r.k === 'prompt' && (!r.a || r.a === 'main')
 const near = (list, r, ms = TARGETS.matchMs) => list.some((d) => d.s === r.s && Math.abs(d.t - r.t) <= ms)
 
-export function decidingStats(rows) {
-  const prompts = rows.filter(isPrompt)
+/**
+ * Which chats the "Jev is deciding" check can judge. A chat is left out,
+ * and counted apart, when it started before the decision log existed
+ * (FIXES.jevLog: it runs an older Jev that keeps no log), when it never
+ * logged a Jev record at all (no current Jev loaded there: set-up, not Jev
+ * failing), or when it is in the "off" group of the on/off comparison (no
+ * Jev by design). `all` is every row, so a chat's history outside the
+ * window still counts.
+ */
+export function jevChats(all, fixes = FIXES) {
+  const start = new Map(), logged = new Set(), off = new Set()
+  for (const r of all) {
+    if (!(r.s >= 0)) continue
+    if (!(start.get(r.s) <= r.t)) start.set(r.s, r.t)
+    if (r.k === 'jev.decision' || r.k === 'jev.arm') logged.add(r.s)
+    if (r.k === 'jev.arm' && r.d?.arm === 'off') off.add(r.s)
+  }
+  const why = (s) => (start.get(s) < fixes.jevLog ? 'old' : off.has(s) ? 'off' : !logged.has(s) ? 'none' : null)
+  return { why }
+}
+
+export function decidingStats(rows, all = rows, fixes = FIXES) {
+  const chats = jevChats(all, fixes)
+  // A typed `/skill` already names its skill: Jev passes it through undecided, by design.
+  const everyPrompt = rows.filter((r) => isPrompt(r) && !r.sl && !r.sk)
+  const left = { old: 0, off: 0, none: 0 }
+  const leftChats = { old: new Set(), off: new Set(), none: new Set() }
+  const prompts = everyPrompt.filter((p) => {
+    const why = chats.why(p.s)
+    if (!why) return true
+    left[why]++
+    leftChats[why].add(p.s)
+    return false
+  })
   const decisions = rows.filter((r) => r.k === 'jev.decision')
-  const suggested = rows.filter((r) => r.k === 'jev.suggested')
+  const suggested = rows.filter((r) => r.k === 'jev.suggested' && !chats.why(r.s))
   const gaps = prompts.filter((p) => !near(decisions, p))
   const unmatched = suggested.filter((s) => !near(decisions, s))
   const last = (list) => (list.length ? Math.max(...list.map((r) => r.t)) : null)
@@ -127,6 +159,8 @@ export function decidingStats(rows) {
     lastDecision,
     afterLast,
     quiet: afterLast > 0,
+    left,
+    leftChats: { old: leftChats.old.size, off: leftChats.off.size, none: leftChats.none.size },
   }
 }
 
@@ -144,10 +178,9 @@ const prevOk = (ctx) => prevNote(ctx) === null
 // ---------- check 1: Jev is deciding (no target set) ----------
 
 function checkDeciding(cur, prev, ctx) {
-  const a = decidingStats(cur), b = decidingStats(prev)
+  const a = decidingStats(cur, ctx.all, ctx.fixes), b = decidingStats(prev, ctx.all, ctx.fixes)
   const base = { id: 'jev-deciding', title: 'Jev is deciding', targeted: true, target: `Higher is better; target ≥ ${pct(TARGETS.decideRate)} of your prompts get a logged decision within 2 min.`, n: a.prompts }
-  if (!a.prompts) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No prompts in the window.', compare: '', lines: [] }
-  const rate = a.decided / a.prompts
+  const rate = a.prompts ? a.decided / a.prompts : null
   const prevRate = b.prompts ? b.decided / b.prompts : null
   const behind = a.lastDecision === null ? null : a.lastPrompt - a.lastDecision
   const lines = [
@@ -157,6 +190,10 @@ function checkDeciding(cur, prev, ctx) {
   if (a.quiet) lines.push(`${plural(a.afterLast, 'prompt')} came after the last logged decision: the decision log has gone quiet`)
   if (a.decisions) lines.push(`${n0(a.picked)} of ${plural(a.decisions, 'Jev decision')} picked a skill · ${n0(a.byJev)} decided by Jev, ${n0(a.byBackup)} by the backup model, ${n0(a.decisions - a.byJev - a.byBackup)} by the built-in picker`)
   if (a.unmatched) lines.push(`${plural(a.unmatched, 'Jev suggestion')} seen in transcripts with no logged decision: Jev ran, the decision log did not record it`)
+  if (a.left.old) lines.push(`Not counted: ${plural(a.left.old, 'prompt')} in ${plural(a.leftChats.old, 'chat')} started before Jev kept a log (an older Jev; new chats log every pick).`)
+  if (a.left.none) lines.push(`Not counted: ${plural(a.left.none, 'prompt')} in ${plural(a.leftChats.none, 'chat')} where Jev never logged anything (Jev not loaded there, or a one-off chat).`)
+  if (a.left.off) lines.push(`Not counted: ${plural(a.left.off, 'prompt')} in ${plural(a.leftChats.off, 'chat')} in the "off" group of the on/off comparison (no Jev, by design).`)
+  if (!a.prompts) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No prompts in chats running the current Jev.', compare: '', lines }
   return {
     ...base,
     state: a.prompts < TARGETS.minN ? 'thin' : rate < TARGETS.decideRate ? 'attention' : 'pass',
@@ -221,6 +258,11 @@ function skillStats(rows, starts = null) {
   const beforeFix = failed.filter((r) => !r.rf && (r.t < FIXES.skills || (starts?.get(r.s) ?? Infinity) < FIXES.skills))
   const refused = failed.filter((r) => !notInstalled.includes(r) && !beforeFix.includes(r))
   return { calls: calls.length, failed, refused, notInstalled, beforeFix }
+}
+
+/** Every row for the host filter, any time: a chat's history before the window. */
+function scopedAll(rows, host) {
+  return rows.filter((r) => hostMatch(r.h, host))
 }
 
 /** Each chat's first event. */
@@ -462,12 +504,12 @@ export function verdictOf(checks, host = 'all') {
 }
 
 /** Every check for one window and host filter, measured back from the build time. `since` is the first event (collection start). */
-export function runChecks({ rows, turns = [], generatedAt, days, host = 'all', since = null }) {
+export function runChecks({ rows, turns = [], generatedAt, days, host = 'all', since = null, fixes = FIXES }) {
   const end = typeof generatedAt === 'number' ? generatedAt : Date.parse(generatedAt)
   const w = windowOf(end, days)
   const all = [...rows, ...turns]
   const first = since === null || since === undefined ? (all.length ? Math.min(...all.map((r) => r.t)) : null) : typeof since === 'number' ? since : Date.parse(since)
-  const ctx = { w, days, since: first, starts: chatStarts(rows) }
+  const ctx = { w, days, since: first, starts: chatStarts(rows), all: scopedAll(rows, host), fixes }
   const scoped = rows.filter((r) => hostMatch(r.h, host))
   const cur = scoped.filter((r) => inside(r.t, w.from, w.to))
   const prev = scoped.filter((r) => inside(r.t, w.prevFrom, w.prevTo))
@@ -487,7 +529,7 @@ export function runChecks({ rows, turns = [], generatedAt, days, host = 'all', s
   const covered = first === null ? 0 : Math.max(0, end - Math.max(w.from, first))
   // prevStarts: when the previous window will lie wholly inside the data, so comparisons begin.
   const coverage = { since: first, covered, partial: first === null || first > w.from, prevTracked: prevOk(ctx), prevStarts: first === null ? null : first + 2 * days * DAY }
-  attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end })
+  attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end, fixes })
   return { window: w, checks, verdict: verdictOf(checks, host), cur, prev, tcur, tprev, coverage, prevNote: prevNote(ctx) }
 }
 
@@ -515,10 +557,10 @@ export function chatStart(rows, s) {
   return Number.isFinite(t) ? t : null
 }
 
-function attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end }) {
+function attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end, fixes = FIXES }) {
   const by = Object.fromEntries(checks.map((c) => [c.id, c]))
   const d = by['jev-deciding']
-  d.facts = { ...decidingStats(cur), prev: decidingStats(prev), chats: decisionChats(cur, rows) }
+  d.facts = { ...decidingStats(cur, rows, fixes), prev: decidingStats(prev, rows, fixes), chats: decisionChats(cur, rows).filter((c) => !jevChats(rows, fixes).why(c.s)) }
   const decs = cur.filter((r) => r.k === 'jev.decision')
   const misses = cur.filter((r) => r.k === 'jev.miss').sort((x, y) => y.t - x.t)
   by['jev-picking'].facts = {

@@ -301,3 +301,12 @@ test('skills check: only real blocks count; wrong names and pre-fix blocks are l
   const R2 = runChecks({ rows, turns: [], generatedAt: fix + 3 * H, days: 1 })
   assert.equal(R2.checks.find((x) => x.id === 'skills').state, 'attention')
 })
+
+test('only what a person typed is a prompt: notifications, peers and continuation summaries are not', async () => {
+  const { typedByPerson } = await import('../scripts/lib.mjs')
+  assert.equal(typedByPerson({ origin: { kind: 'human' }, message: { content: 'fix it' } }), true)
+  assert.equal(typedByPerson({ origin: { kind: 'task-notification' }, message: { content: '<task-notification>' } }), false)
+  assert.equal(typedByPerson({ origin: { kind: 'peer' }, message: { content: 'hello' } }), false)
+  assert.equal(typedByPerson({ message: { content: 'This session is being continued from a previous conversation that ran out' } }), false)
+  assert.equal(typedByPerson({ message: { content: [{ type: 'text', text: 'plain old prompt' }] } }), true)
+})
