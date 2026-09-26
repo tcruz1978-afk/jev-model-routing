@@ -206,17 +206,28 @@ export function actionsHtml(all) {
     '</li>').join('') + '</ol>' + quiet
 }
 
-/** The seven check lines: one summary line each, the panel closed until clicked. */
+/**
+ * The health strip: the seven checks as one row of pills, each opening to its
+ * short panel. A check someone has to act on (You or Claude) carries its
+ * "What to do" right beside its pill, with "Show me how" when there are
+ * steps; the rest say nothing to do.
+ */
 export function checksHtml(rows) {
+  const acts = (r) => r.state !== 'pass' && r.who && r.who !== 'Nothing' && r.todo && r.todo !== 'Nothing to do.'
   return '<ul class="checks">' + rows.map((r) =>
-    `<li><details class="check st-${escHtml(r.state)}" data-id="${escHtml(r.id)}">` +
+    `<li class="${acts(r) ? 'has-todo' : ''}"><details class="check st-${escHtml(r.state)}" data-id="${escHtml(r.id)}">` +
     `<summary><span class="ico" role="img" aria-label="${escHtml(r.word)}" title="${escHtml(r.word)}">${escHtml(r.icon)}</span>` +
     `<span class="name">${escHtml(r.name)}</span><span class="figure">${escHtml(r.figure)}</span><span class="chev" aria-hidden="true">›</span></summary>` +
     `<div class="panel"><p>${escHtml(r.about)}</p>${r.compare ? `<p class="muted">${escHtml(r.compare)}</p>` : ''}` +
     (r.examples.length ? '<ul>' + r.examples.map((e) => `<li>${escHtml(e)}</li>`).join('') + '</ul>' : '') +
-    `<p class="todo-line"><b>What to do:</b> ${escHtml(r.todo)}${r.who && r.who !== 'Nothing' && r.todo !== 'Nothing to do.' ? ` <span class="who who-${escHtml(r.who.toLowerCase())}">${escHtml(r.who)}</span>` : ''}</p>` +
-    (r.how ? `<details class="how"><summary>Show me how</summary><ol>${r.how.map((s) => `<li>${escHtml(s)}</li>`).join('')}</ol></details>` : '') +
-    '</div></details></li>').join('') + '</ul>'
+    (acts(r) ? '' : `<p class="todo-line muted">${escHtml(r.todo === 'Nothing to do.' || r.state === 'pass' ? 'Nothing to do.' : r.todo)}</p>`) +
+    '</div></details>' +
+    (acts(r)
+      ? `<div class="pill-todo"><b>What to do:</b> ${escHtml(r.todo)} <span class="who who-${escHtml(r.who.toLowerCase())}">${escHtml(r.who)}</span>` +
+        (r.how ? `<details class="how"><summary>Show me how</summary><ol>${r.how.map((x) => `<li>${escHtml(x)}</li>`).join('')}</ol></details>` : '') +
+        '</div>'
+      : '') +
+    '</li>').join('') + '</ul>'
 }
 
 /** Text a reader sees, from generated HTML: tags dropped; "Show me how" steps left out, and closed panels too when `collapsed`. */

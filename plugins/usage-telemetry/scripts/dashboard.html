@@ -9,120 +9,141 @@
   --bg: #f7f7f7; --panel: #ffffff; --ink: #1d1d1f; --muted: #626268; --faint: #8e8e93; --line: #e2e2e5; --soft: #f1f1f3;
   --good: #2f7d3b; --bad: #c0362c; --warn: #a86400; --na: #8e8e93;
   --bad-bg: #fbeeec; --good-bg: #eef6ef; --warn-bg: #fdf3e3;
+  --s1: #2f6fb5; --s2: #d9822b; --s3: #3a9d6a; --s4: #8e5bb5; --s5: #c24d6b; --s6: #9a9aa0;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #141416; --panel: #1c1c1f; --ink: #ececef; --muted: #a3a3aa; --faint: #7c7c84; --line: #2e2e33; --soft: #242428;
     --good: #6cc47a; --bad: #ff7b6e; --warn: #f0b252; --na: #8a8a92;
     --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213;
+    --s1: #6ea8ea; --s2: #f0a45a; --s3: #5cc28d; --s4: #b58be0; --s5: #ea7c97; --s6: #75757d;
   }
 }
 :root[data-theme="dark"] {
   --bg: #141416; --panel: #1c1c1f; --ink: #ececef; --muted: #a3a3aa; --faint: #7c7c84; --line: #2e2e33; --soft: #242428;
   --good: #6cc47a; --bad: #ff7b6e; --warn: #f0b252; --na: #8a8a92;
   --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213;
+  --s1: #6ea8ea; --s2: #f0a45a; --s3: #5cc28d; --s4: #b58be0; --s5: #ea7c97; --s6: #75757d;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-main { max-width: 860px; margin: 0 auto; padding: 24px 16px 56px; }
-header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 56px; }
+header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; justify-content: space-between; margin-bottom: 16px; }
 h1 { font-size: 20px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
 .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
 details > summary { cursor: pointer; }
 details > summary::-webkit-details-marker { display: none; }
 summary { list-style: none; }
 summary:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 6px; }
-.options { position: relative; }
-.options > summary { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; background: var(--panel); }
-.options[open] > summary { color: var(--ink); }
-.opt-body { position: absolute; right: 0; top: 36px; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.12); width: max-content; max-width: calc(100vw - 32px); }
-.opt-body p { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
-.opt-body .seg + p { margin-top: 10px; }
-.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
 .seg button { border: 0; background: none; color: var(--muted); padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
 .seg button.short { text-decoration: underline dotted; text-underline-offset: 3px; }
 .banner { display: none; background: var(--warn-bg); color: var(--warn); border: 1px solid currentColor; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-weight: 600; font-size: 14px; }
 .is-stale .banner { display: block; }
-.is-stale .checks, .is-stale .spend, .is-stale .more { filter: grayscale(1); opacity: 0.7; }
-.top { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 14px; }
-.headline { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-.headline h2 { font-size: 18px; margin: 0; font-weight: 650; }
-.verdict { font-size: 18px; font-weight: 650; }
+.is-stale .card, .is-stale .health { filter: grayscale(1); opacity: 0.75; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-top: 14px; min-width: 0; }
+.card > h2 { font-size: 16px; font-weight: 650; margin: 0 0 2px; }
+.card h3 { font-size: 14px; font-weight: 650; margin: 14px 0 4px; }
+.note { color: var(--muted); font-size: 13px; margin: 2px 0 10px; }
+.empty { color: var(--muted); font-size: 14px; margin: 6px 0; }
+.muted { color: var(--muted); }
+/* 1. headline */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
+.kpi { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.kpi .lab { font-size: 12.5px; color: var(--muted); }
+.kpi .val { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.25; margin: 2px 0; }
+.kpi .val.bad { color: var(--bad); }
+.kpi .ds { font-size: 12.5px; color: var(--muted); }
+.kpi .ds b { font-weight: 600; color: var(--ink); }
+.kpi .ds .up { color: var(--ink); } .kpi .ds .down { color: var(--ink); }
+.kpi .ds span.bad { color: var(--bad); font-weight: 600; }
+/* 2. chart */
+.chart svg { display: block; max-width: 100%; }
+svg text { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+svg text.tot { fill: var(--ink); font-size: 11px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; margin: 8px 0 0; padding: 0; list-style: none; }
+.legend li { display: inline-flex; gap: 6px; align-items: baseline; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; flex: none; transform: translateY(1px); }
+details.alt { margin-top: 8px; font-size: 13px; }
+details.alt > summary { color: var(--muted); text-decoration: underline; text-underline-offset: 3px; display: inline-block; }
+/* tables */
+.tbox { overflow-x: auto; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 8px; border-top: 1px solid var(--line); white-space: nowrap; vertical-align: baseline; }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; border-top: 0; }
+td.nm { white-space: normal; overflow-wrap: anywhere; min-width: 96px; max-width: 260px; }
+th.l, td.l { text-align: left; }
+.tri th, .tri td { padding-left: 6px; padding-right: 6px; }
+tr.thin td { color: var(--na); }
+tr.total td { font-weight: 600; }
+tr.bad td { color: var(--bad); }
+td.bad { color: var(--bad); font-weight: 600; }
+td .tag, .tag { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-left: 4px; font-weight: 500; }
+tr.sub td:first-child { padding-left: 14px; }
+.tri { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 8px 22px; }
+.tri > div, .duo > div { min-width: 0; }
+.duo { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 8px 22px; }
+.feedbox { max-height: 520px; overflow: auto; }
+.feedbox thead th { position: sticky; top: 0; background: var(--panel); }
+/* Jev */
+.bars { display: grid; gap: 6px; font-size: 13px; }
+.bar { display: grid; grid-template-columns: 96px minmax(0, 1fr) 118px; gap: 10px; align-items: center; }
+.bar .track { height: 12px; background: var(--soft); border-radius: 3px; overflow: hidden; display: flex; }
+.bar .fill { height: 100%; }
+.bar .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+/* 9. health */
+.health { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; }
+.health-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; }
+.health-head h2 { font-size: 16px; margin: 0; font-weight: 650; }
+.verdict { font-size: 14px; font-weight: 650; }
 .verdict.attention { color: var(--bad); } .verdict.pass { color: var(--good); } .verdict.stale, .verdict.untracked { color: var(--muted); }
-.verdict small { display: block; text-align: right; font-size: 13px; font-weight: 400; color: var(--muted); }
-.todo-block { padding: 12px 0 4px; }
-.todo-block h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
-ol.todo { margin: 0; padding-left: 22px; }
-ol.todo > li { margin: 0 0 8px; }
-.act { font-weight: 550; }
-.who { display: inline-block; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 4px; white-space: nowrap; }
-.done { display: block; font-size: 13px; color: var(--muted); }
-.none { margin: 0; color: var(--muted); }
-details.how { margin-top: 2px; font-size: 13px; }
-details.how > summary { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; display: inline-block; }
-details.how ol { margin: 6px 0 0; padding-left: 20px; color: var(--ink); overflow-wrap: anywhere; }
-.hint { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
-ul.checks { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line); }
-ul.checks > li { border-bottom: 1px solid var(--line); }
-.check > summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 14px; gap: 10px; align-items: baseline; padding: 11px 2px; }
+.verdict small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+ul.checks { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+ul.checks > li { min-width: 0; max-width: 100%; }
+ul.checks > li.has-todo, ul.checks > li:has(> details[open]) { flex-basis: 100%; }
+ul.checks > li.has-todo { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: flex-start; }
+.check > summary { display: inline-flex; gap: 6px; align-items: baseline; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; font-size: 13px; max-width: 100%; }
 .check > summary:hover { background: var(--soft); }
-.ico { font: 700 16px/1 "Segoe UI Symbol", "Apple Symbols", "DejaVu Sans", -apple-system, sans-serif; text-align: center; color: var(--na); }
+.st-attention > summary { border-color: var(--bad); background: var(--bad-bg); }
+.st-partial > summary { border-color: var(--warn); background: var(--warn-bg); }
+.ico { font: 700 14px/1 "Segoe UI Symbol", "Apple Symbols", "DejaVu Sans", -apple-system, sans-serif; color: var(--na); }
 .st-attention .ico { color: var(--bad); } .st-pass .ico { color: var(--good); } .st-partial .ico { color: var(--warn); }
 .name { font-weight: 550; }
 .st-untracked .name, .st-thin .name, .st-stale .name { color: var(--muted); font-weight: 500; }
-.figure { color: var(--muted); font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+.figure { color: var(--muted); font-variant-numeric: tabular-nums; }
 .st-attention .figure { color: var(--bad); }
 .chev { color: var(--faint); transition: transform .15s; }
 .check[open] .chev { transform: rotate(90deg); }
-.panel { padding: 0 2px 12px 34px; font-size: 14px; }
+.panel { padding: 8px 4px 6px 14px; font-size: 13.5px; max-width: 760px; }
 .panel p { margin: 0 0 6px; }
 .panel ul { margin: 0 0 6px; padding-left: 18px; }
-.muted { color: var(--muted); }
-.todo-line b { font-weight: 600; }
-.spend { margin: 12px 0 0; font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.spend b { font-weight: 600; }
-.spend span { color: var(--muted); }
-.more { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
-.more > summary { padding: 14px 18px; font-weight: 600; }
+.pill-todo { font-size: 13.5px; padding: 4px 0; flex: 1 1 280px; min-width: 0; }
+.pill-todo b { font-weight: 600; }
+.who { display: inline-block; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 4px; white-space: nowrap; }
+details.how { margin-top: 2px; font-size: 13px; }
+details.how > summary { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; display: inline-block; }
+details.how ol { margin: 6px 0 0; padding-left: 20px; color: var(--ink); overflow-wrap: anywhere; }
+.more { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.more > summary { padding: 12px 18px; font-weight: 600; font-size: 14px; }
 .more > summary::after { content: " ›"; color: var(--faint); }
 .more[open] > summary::after { content: " ⌄"; }
-.more section { padding: 4px 18px 16px; border-top: 1px solid var(--line); }
-.more h3 { font-size: 15px; margin: 14px 0 4px; }
-.note { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
-.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.pair > div { min-width: 0; }
-.h4 { font-size: 13px; margin: 0 0 4px; font-weight: 600; }
-svg text { fill: var(--muted); font-size: 12px; }
-.empty { color: var(--muted); font-size: 14px; margin: 6px 0; }
-.rows { display: grid; font-size: 13px; font-variant-numeric: tabular-nums; }
-.row { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 4px 12px; padding: 7px 0; border-top: 1px solid var(--line); align-items: baseline; }
-.row.head { color: var(--muted); font-size: 12px; font-weight: 600; border-top: 0; }
-.row > span:not(:first-child) { text-align: right; }
-.row.thin { color: var(--na); }
-.row.bad span.rate { color: var(--bad); font-weight: 600; }
-.row .lab { display: none; }
+.more section { padding: 4px 18px 14px; border-top: 1px solid var(--line); }
+.more h3 { font-size: 14px; margin: 12px 0 4px; }
 ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 @media (max-width: 600px) {
-  .options { width: 100%; }
-  .opt-body { position: static; margin-top: 8px; box-shadow: none; width: auto; }
-  .check > summary { grid-template-columns: 22px minmax(0, 1fr) 14px; row-gap: 2px; }
-  .spend .sep { display: none; }
-  .spend { flex-direction: column; }
-  .check .figure { grid-column: 2; grid-row: 2; text-align: left; font-size: 13px; }
-  .check .chev { grid-column: 3; grid-row: 1; }
-  .panel { padding-left: 32px; }
-  .pair { grid-template-columns: minmax(0, 1fr); }
-  .row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .row > span:first-child { grid-column: 1 / -1; font-weight: 600; }
-  .row > span:not(:first-child) { text-align: left; }
-  .row.head { display: none; }
-  .row .lab { display: block; color: var(--muted); font-size: 12px; }
-  .verdict small { text-align: left; }
-  .top { padding: 14px 14px 10px; }
+  .card, .health { padding: 14px 12px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .kpi { padding: 8px 10px; }
+  .kpi .val { font-size: 20px; }
+  .tri, .duo { grid-template-columns: minmax(0, 1fr); }
+  .bar { grid-template-columns: 78px minmax(40px, 1fr) auto; gap: 8px; }
+  .bar .num { white-space: nowrap; font-size: 12px; }
+  .controls { width: 100%; }
 }
 </style>
 </head>
@@ -133,59 +154,99 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
       <h1>Claude Usage Monitor</h1>
       <p class="sub" id="sub"></p>
     </div>
-    <details class="options" id="options">
-      <summary>Options</summary>
-      <div class="opt-body">
-        <p>Period</p>
-        <div class="seg" id="range" role="group" aria-label="Period">
-          <button data-v="1" aria-pressed="false">24 hours</button><button data-v="7" aria-pressed="true">7 days</button><button data-v="30" aria-pressed="false">30 days</button><button data-v="90" aria-pressed="false">90 days</button>
-        </div>
-        <p>Machines</p>
-        <div class="seg" id="host" role="group" aria-label="Machines">
-          <button data-v="all" aria-pressed="true">All</button><button data-v="cloud" aria-pressed="false">Cloud</button><button data-v="local" aria-pressed="false">Your PC</button>
-        </div>
+    <div class="controls">
+      <div class="seg" id="range" role="group" aria-label="Period">
+        <button data-v="1" aria-pressed="false">24 hours</button><button data-v="7" aria-pressed="true">7 days</button><button data-v="30" aria-pressed="false">30 days</button><button data-v="90" aria-pressed="false">90 days</button>
       </div>
-    </details>
+      <div class="seg" id="host" role="group" aria-label="Machines">
+        <button data-v="all" aria-pressed="true">All machines</button><button data-v="cloud" aria-pressed="false">Cloud</button><button data-v="local" aria-pressed="false">Your PC</button>
+      </div>
+    </div>
   </header>
 
   <div class="banner" id="banner" role="alert"></div>
 
-  <section class="top" id="top" aria-labelledby="q">
-    <div class="headline"><h2 id="q">Is everything working?</h2><div class="verdict" id="verdict"></div></div>
-    <div class="todo-block"><h3>What to do</h3><div id="actions"></div></div>
-    <p class="hint" id="jevhint"></p>
+  <section class="card" aria-labelledby="h-head">
+    <h2 id="h-head">What did the models do, and what did it cost?</h2>
+    <p class="note" id="head-note"></p>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-cost">
+    <h2 id="h-cost">What did each model cost, <span id="bucketword">day</span> by <span id="bucketword2">day</span>?</h2>
+    <p class="note" id="cost-note"></p>
+    <div class="chart" id="costchart"></div>
+    <ul class="legend" id="legend"></ul>
+    <div id="costtable"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-work">
+    <h2 id="h-work">Where did the work go?</h2>
+    <p class="note" id="work-note"></p>
+    <div class="tri">
+      <div><h3>By skill</h3><div class="tbox" id="w-skill"></div></div>
+      <div><h3>By connector or plugin</h3><div class="tbox" id="w-conn"></div></div>
+      <div><h3>By subagent</h3><div class="tbox" id="w-sub"></div></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-grid">
+    <h2 id="h-grid">Which model served which kind of request?</h2>
+    <p class="note">Rows are models; columns are the skill Claude was working for, and the kind of task sent to the model router. Each cell: calls · cost.</p>
+    <div class="tbox" id="grid"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-jev">
+    <h2 id="h-jev">How well is Jev picking skills, paid against free?</h2>
+    <p class="note" id="jev-note"></p>
+    <h3>Who decided, and how it went</h3>
+    <div class="tbox" id="jev-tiers"></div>
+    <h3>Same test prompts, each tier</h3>
+    <div id="jev-bench"></div>
+    <div class="duo">
+      <div><h3>What Jev picked</h3><div class="tbox" id="jev-picks"></div></div>
+      <div><h3>How sure Jev was</h3><p class="note">Jev's fit score for the skill it picked, or for the best skill when it picked nothing.</p><div id="jev-conf"></div></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-router">
+    <h2 id="h-router">What did the model router send to OpenRouter?</h2>
+    <p class="note" id="router-note"></p>
+    <div class="duo">
+      <div><h3>By kind of task</h3><div class="tbox" id="r-cat"></div></div>
+      <div><h3>Model asked for, and the model that answered</h3><div class="tbox" id="r-pair"></div></div>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-chats">
+    <h2 id="h-chats">Which chats cost the most?</h2>
+    <p class="note">The 10 most expensive chats in this period, by Claude's work at pay-as-you-go prices.</p>
+    <div class="tbox" id="chats"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-feed">
+    <h2 id="h-feed">What happened most recently?</h2>
+    <p class="note">The newest 100 things the models did in this period, newest first. What you typed is never recorded.</p>
+    <div class="seg" id="feedtype" role="group" aria-label="Show">
+      <button data-v="all" aria-pressed="true">All</button><button data-v="model" aria-pressed="false">Model</button><button data-v="tool" aria-pressed="false">Tool</button><button data-v="connector" aria-pressed="false">Connector</button><button data-v="subagent" aria-pressed="false">Subagent</button><button data-v="router" aria-pressed="false">Router</button><button data-v="jev" aria-pressed="false">Jev</button>
+    </div>
+    <div class="tbox feedbox" id="feed"></div>
+  </section>
+
+  <section class="health" id="top" aria-labelledby="q">
+    <div class="health-head"><h2 id="q">Is anything broken?</h2><div class="verdict" id="verdict"></div></div>
     <div id="checks"></div>
-    <p class="spend" id="spend"></p>
   </section>
 
   <details class="more" id="more">
-    <summary>Details</summary>
-    <section>
-      <h3>Requests over time</h3>
-      <p class="note">Each point is one <span id="bucketword">day</span>, ending when this page was built.</p>
-      <div id="trend"></div>
-    </section>
-    <section>
-      <h3>Where Claude's work went</h3>
-      <p class="note">What the work would have cost at Claude's pay-as-you-go prices — a measure of work, not a bill. Rows with fewer than 10 model calls are grey.</p>
-      <div class="rows" id="work"></div>
-    </section>
-    <section>
-      <h3>Skills Claude was blocked from</h3>
-      <div class="rows" id="refused"></div>
-    </section>
-    <section>
-      <h3>Tools that failed more than 1 in 10 times</h3>
-      <p class="note">Red from 10 uses; grey means too few uses to judge.</p>
-      <div class="rows" id="tools"></div>
-    </section>
+    <summary>About these numbers</summary>
     <section>
       <h3>The targets</h3>
-      <p class="note">Set by you on Sep 26, 2026. They are the only reason anything turns red or green.</p>
+      <p class="note">Set by you on Sep 26, 2026. They are the only reason a health check turns red or green.</p>
       <ul class="plain" id="targets"></ul>
     </section>
     <section>
-      <h3>About these numbers</h3>
+      <h3>How the figures are worked out</h3>
       <ul class="plain" id="notes"></ul>
     </section>
   </details>
@@ -197,14 +258,44 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 const DATA = /*__DATA__*/null;
 const END = Date.parse(DATA.generatedAt);
 const SINCE = DATA.firstEventAt ? Date.parse(DATA.firstEventAt) : null;
-let host = 'all', days = 7;
+let host = 'all', days = 7, feedKind = 'all';
 
 const esc = escHtml;
 const hostsEver = [...new Set(DATA.rows.map((r) => r.h))];
 const hasHost = (h) => hostsEver.some((x) => hostMatch(x, h));
-const change = (a, b) => (b > 0 && Number.isFinite(a) ? (a >= b ? '+' : '−') + Math.round((Math.abs(a - b) / b) * 100) + '%' : '—');
-const priced = (ts) => ts.filter((t) => Number.isFinite(t.c)).length;
+const where = (h) => (h === 'cloud' ? 'Cloud' : String(h ?? '').startsWith('local') ? 'Your PC' : 'Unknown');
+const SERIES = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)', 'var(--s5)', 'var(--s6)'];
 let current = null;
+
+/** "0.4 s", "12 s", "3 min", "1.5 h". */
+function dur(ms) {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
+  if (ms < 10000) return (ms / 1000).toFixed(1) + ' s';
+  if (ms < 120000) return Math.round(ms / 1000) + ' s';
+  if (ms < 7200000) return Math.round(ms / 60000) + ' min';
+  return (ms / 3600000).toFixed(1) + ' h';
+}
+/** 950, 12.3k, 1.2M tokens. */
+function tok(x) {
+  if (x === null || x === undefined || !Number.isFinite(x)) return '—';
+  if (x < 1000) return String(x);
+  if (x < 1e6) return (x / 1000).toFixed(x < 1e4 ? 1 : 0) + 'k';
+  return (x / 1e6).toFixed(1) + 'M';
+}
+/** Money in tables: $0 / under $0.01 / $1.23 / $1,234. */
+const money = (x) => usdTop(x);
+/** "2 of 9 (22%)", or "none" at 0. */
+const ofN = (a, b) => (!b ? '—' : a ? `${n0(a)} of ${n0(b)} (${pct(a / b)})` : `none of ${n0(b)}`);
+const shortTime = (t) => fmtTime(t).replace(/ [A-Z]{2,5}[+-]?\d*$/, '');
+const modelLabel = (key, model, via) => key === 'other' ? 'Other models' : `${modelName(model)}${via === 'openrouter' ? ' (OpenRouter)' : ''}`;
+
+function table(head, rows, opts = {}) {
+  if (!rows.length) return `<p class="empty">${esc(opts.empty || 'Nothing in this period.')}</p>`;
+  const left = opts.left || [];
+  return `<table><thead><tr>${head.map((h, i) => `<th scope="col"${left.includes(i) ? ' class="l"' : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>` +
+    rows.map((r) => `<tr class="${r.cls || ''}">${r.cells.map((c, i) => i === 0 ? `<td class="nm">${c}</td>` : `<td class="${[r.bad && r.bad.includes(i) ? 'bad' : '', left.includes(i) ? 'l' : ''].join(' ').trim()}">${c}</td>`).join('')}</tr>`).join('') +
+    '</tbody></table>';
+}
 
 function render() {
   const now = Date.now();
@@ -214,8 +305,8 @@ function render() {
   document.getElementById('banner').textContent = stale
     ? `This page is out of date: it was built ${builtAgo} ago, on ${fmtTime(END)}. Everything below is from then. Ask Claude to refresh it before you act on it.`
     : '';
-  const where = DATA.source === 'supabase' ? 'all machines' : 'this machine';
-  document.getElementById('sub').textContent = `as of ${fmtTime(END)} · data since ${SINCE === null ? 'no data yet' : fmtTime(SINCE)} · ${where}`;
+  const src = DATA.source === 'supabase' ? 'all machines that sent their usage' : 'this machine only';
+  document.getElementById('sub').textContent = `As of ${fmtTime(END)} · data since ${SINCE === null ? 'no data yet' : fmtTime(SINCE)} · ${src}`;
   for (const b of document.querySelectorAll('#range button')) {
     const d = Number(b.dataset.v), short = SINCE === null || SINCE > END - d * DAY;
     b.classList.toggle('short', short);
@@ -225,163 +316,254 @@ function render() {
     const v = b.dataset.v;
     b.title = v !== 'all' && !hasHost(v) ? (v === 'local' ? "Your PC hasn't reported yet" : "Cloud chats haven't reported yet") : '';
   }
-
   const R = runChecks({ rows: DATA.rows, turns: DATA.turns, generatedAt: END, days, host, since: SINCE });
   current = R;
+  kpis(R);
+  costChart(R);
+  work(R);
+  grid(R);
+  jev(R);
+  router(R);
+  chats(R);
+  feed(R);
+  health(R, stale, builtAgo);
+  about();
+}
+
+// 1. The headline numbers.
+function kpis(R) {
+  const H = headline({ cur: R.cur, prev: R.prev, rows: DATA.rows, window: R.window, prevTracked: R.coverage.prevTracked });
+  const pw = periodWords(days);
+  const d = (x) => (x ? `<b>${esc(x.text)}</b> on ${esc(pw.prev)}` : '');
+  const notTracked = '';
+  const orBasis = { key: 'charged to your key, all machines', partial: `charged since the first balance check (${shortTime(H.openrouter.since)}), plus routed calls before it`, router: "the model router's logged calls only; balance not checked" }[H.openrouter.basis];
+  const c = H.credit;
+  const credLow = c && c.credit !== null && c.total > 0 && c.credit / c.total < TARGETS.creditFloor;
+  const cards = [
+    { lab: 'Claude work', val: money(H.cur.claude), ds: [esc(`at pay-as-you-go prices${H.cur.unpriced ? ` · ${plural(H.cur.unpriced, 'call')} with no price` : ''}`), d(H.delta.claude) || notTracked] },
+    { lab: 'OpenRouter spend', val: money(H.openrouter.usd), ds: [esc(orBasis), H.delta.openrouter ? d(H.delta.openrouter) : !R.coverage.prevTracked ? '' : esc(`${pw.prev.charAt(0).toUpperCase() + pw.prev.slice(1)}: no balance check to compare`)] },
+    { lab: 'Your requests', val: n0(H.cur.prompts), ds: ['messages you sent', d(H.delta.prompts) || notTracked] },
+    { lab: 'Model calls', val: n0(H.cur.calls), ds: [esc(`to Claude${H.cur.routed ? ` · plus ${plural(H.cur.routed, 'routed call')}` : ''}`), d(H.delta.calls) || notTracked] },
+    { lab: 'Tool calls', val: n0(H.cur.tools), ds: [H.cur.tools ? (H.cur.toolFails ? `<span class="${H.cur.toolFails / H.cur.tools > TARGETS.toolFailRate ? 'bad' : ''}">${esc(n0(H.cur.toolFails))} failed (${esc(pct(H.cur.toolFails / H.cur.tools))})</span>` : 'none failed') : 'none', d(H.delta.tools) || notTracked] },
+    { lab: 'OpenRouter credit left', val: c && c.credit !== null ? money(c.credit) : 'not checked', bad: credLow, ds: c && c.credit !== null
+      ? [c.perDay ? `lasts ${esc(daysWords(c.daysLeft))} at ${esc(money(c.perDay))} a day` : 'no spend to measure yet', c.perDay ? `spend rate from the last ${esc(dur(c.span))} of balance checks` : `checked ${esc(shortTime(c.asOf))}`]
+      : ['connect your OpenRouter key to see it'] },
+  ];
+  const since = !R.coverage.prevTracked && R.coverage.since ? ` No comparison with ${pw.prev} yet: collecting began ${shortTime(R.coverage.since)}.` : '';
+  document.getElementById('head-note').textContent = `${pw.cur.charAt(0).toUpperCase() + pw.cur.slice(1)}, ${host === 'all' ? 'all machines' : host === 'cloud' ? 'cloud only' : 'your PC only'}. OpenRouter figures cover your whole account.${since}`;
+  document.getElementById('kpis').innerHTML = cards.map((k) => `<div class="kpi"><div class="lab">${esc(k.lab)}</div><div class="val${k.bad ? ' bad' : ''}">${esc(k.val)}</div>` +
+    k.ds.filter(Boolean).map((x) => `<div class="ds">${x}</div>`).join('') + '</div>').join('');
+}
+
+// 2. Cost by model over time.
+function costChart(R) {
+  const C = costByModel(R.cur, R.window);
+  const hourly = C.size < DAY;
+  document.getElementById('bucketword').textContent = hourly ? 'hour' : 'day';
+  document.getElementById('bucketword2').textContent = hourly ? 'hour' : 'day';
+  const el = document.getElementById('costchart');
+  const withCost = C.buckets.filter((b) => b.total > 0).length;
+  document.getElementById('cost-note').textContent = C.series.length
+    ? `${money(C.total)} in all. Claude models at pay-as-you-go prices; OpenRouter models at what OpenRouter logged for the model router. Jev's own OpenRouter calls are not priced one by one, so they are not here.`
+    : '';
+  if (!C.series.length) { el.innerHTML = '<p class="empty">No model calls in this period.</p>'; document.getElementById('legend').innerHTML = ''; document.getElementById('costtable').innerHTML = ''; return; }
+  const color = (i) => SERIES[Math.min(i, SERIES.length - 1)];
+  const idx = new Map(C.series.map((s, i) => [s.key, i]));
+  const label = (b) => (hourly ? new Date(b.from).toLocaleTimeString('en-US', { hour: 'numeric' }) : fmtDate(b.from));
+  const W = Math.max(280, Math.floor(el.clientWidth || 600)), H = 190, padL = 50, padR = 8, top = 16;
+  const max = Math.max(...C.buckets.map((b) => b.total), 1e-9) * 1.08;
+  const k = C.buckets.length, slot = (W - padL - padR) / k, bw = Math.max(2, Math.min(44, slot * 0.72));
+  const y = (v) => top + (H - top) * (1 - v / max);
+  let s = `<svg viewBox="0 0 ${W} ${H + 22}" width="${W}" height="${H + 22}" role="img" aria-label="Cost per ${hourly ? 'hour' : 'day'} by model">`;
+  for (const f of [0, 0.5, 1]) s += `<line x1="${padL}" x2="${W - padR}" y1="${y(max * f / 1.08)}" y2="${y(max * f / 1.08)}" stroke="var(--line)"/><text x="0" y="${y(max * f / 1.08) + 4}">${esc(money(max * f / 1.08))}</text>`;
+  C.buckets.forEach((b, i) => {
+    const x = padL + i * slot + (slot - bw) / 2;
+    let acc = 0;
+    for (const sr of C.series) {
+      const v = b.by[sr.key] || 0;
+      if (!v) continue;
+      const y0 = y(acc), y1 = y(acc + v);
+      s += `<rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5, y0 - y1).toFixed(1)}" fill="${color(idx.get(sr.key))}"><title>${esc(label(b))} · ${esc(modelLabel(sr.key, sr.model, sr.via))}: ${esc(usd(v))}</title></rect>`;
+      acc += v;
+    }
+    if (b.total > 0 && (k <= 16 || b.total === Math.max(...C.buckets.map((z) => z.total)))) s += `<text class="tot" x="${(x + bw / 2).toFixed(1)}" y="${(y(b.total) - 4).toFixed(1)}" text-anchor="middle">${esc(money(b.total))}</text>`;
+  });
+  const every = Math.max(1, Math.ceil(k / Math.max(2, Math.floor((W - padL) / 64))));
+  C.buckets.forEach((b, i) => {
+    if (i % every !== 0 && i !== k - 1) return;
+    if (i !== k - 1 && k - 1 - i < every) return;
+    const cx = padL + i * slot + slot / 2;
+    const anchor = k > 1 && i === k - 1 ? 'end' : k > 1 && i === 0 ? 'start' : 'middle';
+    s += `<text x="${(anchor === 'end' ? Math.min(W - 2, cx + bw / 2) : anchor === 'start' ? padL : cx).toFixed(1)}" y="${H + 16}" text-anchor="${anchor}">${esc(label(b))}</text>`;
+  });
+  el.innerHTML = s + '</svg>' + (withCost < 2 ? `<p class="note">All the cost so far falls in one ${hourly ? 'hour' : 'day'}; more bars appear as the days pass.</p>` : '');
+  document.getElementById('legend').innerHTML = C.series.map((sr, i) => `<li><span class="sw" style="background:${color(i)}"></span><span>${esc(modelLabel(sr.key, sr.model, sr.via))}${sr.key === 'other' ? ` (${n0(sr.count)})` : ''}</span> <b>${esc(money(sr.cost))}</b> <span class="muted">${esc(plural(sr.calls, 'call'))}</span></li>`).join('');
+  const rowsWith = C.buckets.filter((b) => b.calls > 0);
+  document.getElementById('costtable').innerHTML = `<details class="alt"><summary>Show as a table</summary><div class="tbox">` +
+    table([hourly ? 'Hour' : 'Day', ...C.series.map((sr) => modelLabel(sr.key, sr.model, sr.via)), 'Total'],
+      rowsWith.map((b) => ({ cells: [esc(label(b)), ...C.series.map((sr) => esc(b.by[sr.key] ? money(b.by[sr.key]) : '—')), esc(money(b.total))] }))) + '</div></details>';
+}
+
+// 3. Where the work went.
+function work(R) {
+  const skills = workBySkill(R.cur, R.tcur);
+  const conn = workByConnector(R.cur, R.tcur);
+  const sub = workBySubagent(R.cur);
+  const none = skills.find((s) => s.skill === null);
+  const calls = R.cur.filter((r) => r.k === 'api').length;
+  document.getElementById('work-note').textContent = calls
+    ? `Cost is Claude's work at pay-as-you-go prices. A skill gets the model calls made while it was active (typed as a command, loaded by Claude, or put in by Jev); ${none ? `${n0(none.calls)} of ${plural(calls, 'model call')} ran with no skill active and show as "no skill"` : 'every model call ran with a skill active'}. A connector gets the cost of the Claude replies that asked for it. Time is the typical (middle) request, call or run; for subagents, only runs Claude waited for (a background run's time isn't known). Grey rows: fewer than 10 uses, too few to judge the failure rate.`
+    : 'No Claude work in this period yet.';
+  const failCell = (e, n) => (e.failRate === null ? '—' : ofN(e.failed, n));
+  const top = (list, n = 8) => list.slice(0, n);
+  const more = (list, n = 8) => (list.length > n ? `<p class="note">${n0(list.length - n)} more not shown.</p>` : '');
+  const failBad = (e, n) => e.failed && n >= TARGETS.minN && e.failed / n > TARGETS.toolFailRate;
+  document.getElementById('w-skill').innerHTML = table(['Skill', 'Uses', 'Cost', 'Blocked', 'Time'], top(skills).map((e) => ({
+    cls: e.skill !== null && e.uses < TARGETS.minN ? 'thin' : '', bad: e.failed ? [3] : [],
+    cells: [e.skill === null ? '<i>no skill</i>' : esc(e.skill), esc(e.skill === null ? plural(e.uses, 'request') : n0(e.uses)), esc(money(e.cost)), esc(e.skill === null ? '—' : failCell(e, e.uses)), esc(dur(e.ms))],
+  })), { empty: 'No skills and no model calls in this period.' }) + more(skills);
+  document.getElementById('w-conn').innerHTML = table(['Connector', 'Calls', 'Cost', 'Failed', 'Time'], top(conn).map((e) => ({
+    cls: e.calls < TARGETS.minN ? 'thin' : '', bad: failBad(e, e.calls) ? [3] : [],
+    cells: [esc(e.name.replace(/_/g, ' ')) + (e.kind === 'plugin' ? '<span class="tag">plugin</span>' : ''), esc(n0(e.calls)), esc(money(e.cost)), esc(failCell(e, e.calls)), esc(e.kind === 'plugin' ? dur(e.ms) : dur(e.ms))],
+  })), { empty: 'No connector or plugin was used in this period.' }) + more(conn);
+  const subs = top(sub.list).map((e) => ({
+    cls: e.calls < TARGETS.minN ? 'thin' : '', bad: failBad(e, e.calls) ? [3] : [],
+    cells: [esc(e.type), esc(n0(e.calls)), esc(money(e.cost)), esc(failCell(e, e.calls)), esc(e.ms === null && e.background ? 'background' : dur(e.ms))],
+  }));
+  if (sub.main.modelCalls) subs.push({ cls: 'total', cells: ['<i>main chat</i>', '—', esc(money(sub.main.cost)), '—', '—'] });
+  document.getElementById('w-sub').innerHTML = table(['Subagent', 'Runs', 'Cost', 'Failed', 'Time'], sub.list.length ? subs : [], { empty: 'No subagents were started in this period.' }) + more(sub.list);
+}
+
+// 4. Model × work.
+function grid(R) {
+  const G = modelGrid(R.cur, 6);
+  const el = document.getElementById('grid');
+  if (!G.rows.length) { el.innerHTML = '<p class="empty">No model calls in this period.</p>'; return; }
+  const head = ['Model', ...G.cols.map((c) => (c.kind === 'skill' ? (c.name ?? 'no skill') : `Router: ${c.name ?? 'task'}`)), ...(G.hiddenCols ? ['Other'] : []), 'All'];
+  const cell = (x) => (x ? `${n0(x.calls)} · ${money(x.cost)}` : '—');
+  el.innerHTML = table(head, G.rows.map((m) => ({
+    cells: [esc(modelLabel(m.key, m.model, m.via)), ...m.cells.map((x) => esc(cell(x))), ...(G.hiddenCols ? [esc(cell(m.other))] : []), `<b>${esc(cell(m))}</b>`],
+  })));
+}
+
+// 5. Jev.
+function jev(R) {
+  const T = jevTierStats(R.cur, R.tcur);
+  const picks = jevPicks(R.cur, R.tcur);
+  const conf = jevConfidence(R.cur);
+  const picked = picks.filter((p) => p.skill !== null).reduce((a, p) => a + p.decisions, 0);
+  document.getElementById('jev-note').textContent = T.total
+    ? `Jev made ${plural(T.total, 'decision')} in this period: picked a skill ${plural(picked, 'time')}, nothing ${plural(T.total - picked, 'time')}. "Flagged wrong" means you typed a different skill, Claude loaded another, or you pushed back after the pick. "Landed" means your next message did not push back. Rows with fewer than 10 decisions are grey: too few to judge.${T.unmatchedMisses ? ` ${plural(T.unmatchedMisses, 'flagged miss', 'flagged misses')} could not be matched to a decision in this period.` : ''}`
+    : "Jev made no decisions in this period.";
+  const rate = (x, thin, n) => (n === 0 ? '—' : thin ? `${x} · too few to judge` : x);
+  const tierRow = (t, cls, name, paid) => ({
+    cls: (t.thin ? 'thin ' : '') + (cls || ''),
+    cells: [name, paid === null ? '—' : paid ? 'paid' : 'free', esc(t.decisions ? `${n0(t.decisions)} (${pct(t.share)})` : 'none'),
+      esc(rate(ofN(t.misses, t.decisions), t.thin, t.decisions)), esc(rate(ofN(t.landed, t.known), t.thin, t.known)), esc(dur(t.ms))],
+  });
+  const rows = [];
+  if (T.total) {
+    rows.push(tierRow(T.paid, 'total', 'All paid', true));
+    for (const t of T.tiers.filter((x) => x.paid === true)) rows.push(tierRow(t, 'sub', esc(t.label), true));
+    rows.push(tierRow(T.free, 'total', 'All free', false));
+    for (const t of T.tiers.filter((x) => x.paid === false)) rows.push(tierRow(t, 'sub', esc(t.label), false));
+    if (!T.tiers.some((x) => x.paid === false)) rows.push({ cls: 'sub thin', cells: ['Free backup or built-in', 'free', 'none', '—', '—', '—'] });
+    for (const t of T.tiers.filter((x) => x.paid === null)) rows.push(tierRow(t, '', esc(t.label), null));
+  }
+  document.getElementById('jev-tiers').innerHTML = table(['Who decided', 'Cost', 'Decisions', 'Flagged wrong', 'Landed', 'Typical time'], rows, { empty: 'No decisions in this period.' });
+  const B = DATA.jevTiers ? readTierBenchmark(DATA.jevTiers) : null;
+  const bEl = document.getElementById('jev-bench');
+  if (!B) bEl.innerHTML = '<p class="empty">Not run yet. When it runs, the same test prompts go to Jev, a paid backup model and a free one, and this shows how many each got right.</p>';
+  else {
+    const names = { jev: 'Jev', paid: 'Paid backup', free: 'Free' };
+    bEl.innerHTML = `<p class="note">${esc(`${B.cases ? plural(B.cases, 'test prompt') : 'Test prompts'}${B.ranAt ? `, run ${fmtTime(Date.parse(B.ranAt))}` : ''}.`)}</p><div class="bars">` +
+      ['jev', 'paid', 'free'].filter((id) => B.tiers[id]).map((id, i) => { const t = B.tiers[id]; return `<div class="bar"><span>${esc(names[id])}</span><span class="track"><span class="fill" style="width:${(t.rate * 100).toFixed(1)}%;background:${SERIES[i]}"></span></span><span class="num">${esc(`${n0(t.right)} of ${n0(t.of)} right (${pct(t.rate)})`)}</span></div>`; }).join('') + '</div>';
+  }
+  document.getElementById('jev-picks').innerHTML = table(['Picked', 'Times', 'Flagged wrong', 'Landed', 'Pushed back'], picks.slice(0, 12).map((p) => ({
+    cls: p.thin ? 'thin' : '', bad: p.misses ? [2] : [],
+    cells: [p.skill === null ? '<i>nothing</i>' : esc(p.skill), esc(n0(p.decisions)), esc(p.misses ? n0(p.misses) : '—'), esc(p.known ? n0(p.landed) : '—'), esc(p.known ? n0(p.pushedBack) : '—')],
+  })), { empty: 'No decisions in this period.' }) + (picks.length > 12 ? `<p class="note">${n0(picks.length - 12)} more not shown.</p>` : '');
+  const cmax = Math.max(1, ...conf.bands.map((b) => b.picked + b.nothing));
+  document.getElementById('jev-conf').innerHTML = T.total ? '<div class="bars">' + conf.bands.map((b) => `<div class="bar"><span>${esc(b.label)}</span><span class="track"><span class="fill" style="width:${(b.picked / cmax * 100).toFixed(1)}%;background:var(--s1)"></span><span class="fill" style="width:${(b.nothing / cmax * 100).toFixed(1)}%;background:var(--s6)"></span></span><span class="num">${esc(`${n0(b.picked)} picked, ${n0(b.nothing)} none`)}</span></div>`).join('') + '</div>' +
+    `<ul class="legend"><li><span class="sw" style="background:var(--s1)"></span>picked a skill</li><li><span class="sw" style="background:var(--s6)"></span>picked nothing</li>${conf.unknown ? `<li class="muted">${esc(plural(conf.unknown, 'decision'))} with no score</li>` : ''}</ul>` : '<p class="empty">No decisions in this period.</p>';
+}
+
+// 6. The model router.
+function router(R) {
+  const D = routerDetail(R.cur);
+  document.getElementById('router-note').textContent = D.n
+    ? `${plural(D.n, 'routed call')}, ${money(D.cost)} logged by OpenRouter. Red: the call failed, or a different model answered than the one asked for.`
+    : "The model router wasn't used in this period.";
+  document.getElementById('r-cat').innerHTML = D.n ? table(['Task', 'Calls', 'Failed or backup', 'Cost', 'Typical time'], D.categories.map((c) => ({
+    bad: c.errors + c.fallbacks ? [2] : [],
+    cells: [esc(c.category), esc(n0(c.calls)), esc(ofN(c.errors + c.fallbacks, c.calls)), esc(money(c.cost)), esc(dur(c.ms))],
+  }))) : '<p class="empty">No routed calls.</p>';
+  document.getElementById('r-pair').innerHTML = D.n ? table(['Asked for', 'Answered by', 'Calls', 'Cost'], D.pairs.map((p) => ({
+    cls: p.errors || p.fallbacks ? 'bad' : '',
+    cells: [esc(p.asked ? modelName(p.asked) : 'not recorded'), esc(p.answered ? modelName(p.answered) : 'failed, no answer'), esc(n0(p.calls)), esc(money(p.cost))],
+  })), { left: [1] }) : '<p class="empty">No routed calls.</p>';
+}
+
+// 7. The most expensive chats.
+function chats(R) {
+  const list = topChats(R.cur, R.tcur, DATA.sessions);
+  document.getElementById('chats').innerHTML = table(['Started', 'Machine', 'Length', 'Models', 'Top skill', 'Requests', 'Cost', 'Pushed back'], list.map((c) => ({
+    bad: c.pushedBack ? [7] : [],
+    cells: [esc(shortTime(c.start)), esc(where(c.h)), esc(dur(c.length)), esc(c.models.map(modelName).join(', ') || '—'), esc(c.topSkill ?? 'no skill'), esc(n0(c.prompts)), esc(money(c.cost)), esc(c.pushedBack ? n0(c.pushedBack) : '—')],
+  })), { empty: 'No chats in this period.', left: [1, 3, 4] });
+}
+
+// 8. Recent activity.
+const TYPE_WORD = { model: 'Model', tool: 'Tool', connector: 'Connector', subagent: 'Subagent', router: 'Router', jev: 'Jev' };
+function feed(R) {
+  const list = activityFeed(R.cur, { type: feedKind, limit: 100 });
+  document.getElementById('feed').innerHTML = table(['Time', 'Machine', 'Type', 'What', 'Model', 'Tokens in / out', 'Cost', 'Took', 'Result'], list.map((f) => ({
+    cls: f.ok === false ? 'bad' : '',
+    cells: [esc(new Date(f.t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })), esc(where(f.h)), esc(TYPE_WORD[f.type]), esc(f.name), esc(f.type === 'jev' ? f.model : f.model ? modelName(f.model) : '—'),
+      esc(f.tokensIn === null && f.tokensOut === null ? '—' : `${tok(f.tokensIn)} / ${tok(f.tokensOut)}`),
+      esc(f.cost === null ? '—' : money(f.cost) + (f.costKind === 'reply' ? '*' : '')), esc(dur(f.ms)), esc(f.ok === false ? 'failed' : f.ok === true ? 'ok' : '—')],
+  })), { empty: 'Nothing of this type in this period.', left: [1, 2, 3, 4] }) + (list.some((f) => f.costKind === 'reply' && f.cost !== null) ? '<p class="note">* A tool\'s cost is its share of the Claude reply that asked for it.</p>' : '');
+}
+
+// 9. Health.
+function health(R, stale, builtAgo) {
   const v = verdictPlain(R, { stale, builtAgo, host });
   const vEl = document.getElementById('verdict');
   vEl.className = 'verdict ' + v.state;
   vEl.innerHTML = esc(v.text) + (v.sub ? `<small>${esc(v.sub)}</small>` : '');
-
-  const actions = actionsFor(R.checks, { stale, builtAgo, end: END, prevStarts: R.coverage.prevStarts, host });
-  document.getElementById('actions').innerHTML = actionsHtml(actions);
-  const jevFirst = actions.some((a) => /\bJev\b/.test(a.text));
-  const hint = document.getElementById('jevhint');
-  hint.textContent = 'Jev picks the right skill for each of your requests.';
-  hint.style.display = '';
-  const rows = plainChecks(R, { days, end: END, host, stale, builtAgo });
-  document.getElementById('checks').innerHTML = checksHtml(rows);
-  // Jev is explained once, in its own line above the checks (#jevhint).
-  void jevFirst;
-
-  const sp = spendPlain(R, DATA.rows, { days, end: END, host });
-  const spEl = document.getElementById('spend');
-  spEl.title = sp.tooltip;
-  spEl.innerHTML = `<b>${esc(sp.label)}</b> <span>Claude ${esc(sp.claude)} (at pay-as-you-go prices)</span> <span class="sep">·</span> <span>OpenRouter ${esc(sp.openrouter ?? 'not checked yet')}</span>`;
-
-  if (document.getElementById('more').open) details(R);
-  else document.getElementById('trend').innerHTML = '';
+  document.getElementById('checks').innerHTML = checksHtml(plainChecks(R, { days, end: END, host, stale, builtAgo }));
 }
 
-function details(R) {
-  trend(R);
-  work(R);
-  refused(R);
-  tools(R);
+function about() {
   document.getElementById('targets').innerHTML = TARGET_NOTES.map((t) => `<li>${esc(t)}</li>`).join('');
   const p = DATA.prices || {};
   const pw = periodWords(days);
   document.getElementById('notes').innerHTML = [
     `Claude's cost is what the same work would cost at Claude's pay-as-you-go prices${p.date ? ` (price list read ${p.date})` : ''}. On a subscription it measures work, not what you pay.`,
-    "OpenRouter's figure is what OpenRouter itself reports for your key. The two are never added together.",
+    "OpenRouter's spend comes from your key's own running total (the model router, Jev and anything else on the key). Before the first balance check, only the model router's logged calls count. Claude and OpenRouter are never added together.",
+    "Jev is paid when Jev itself or a paid backup model decided; free when a free backup model or Claude Code's own classifier did.",
     `Every figure covers ${pw.cur} up to ${fmtTime(END)}, and is compared with ${pw.prev}.`,
     DATA.source === 'supabase' ? 'Built from every machine that sent its usage.' : 'Built from this machine only.',
     'Your prompts and what tools were asked to do are never recorded — only counts, times and costs.',
   ].map((t) => `<li>${esc(t)}</li>`).join('');
 }
 
-function trend(R) {
-  const el = document.getElementById('trend');
-  const B = trendBuckets(R.tcur, R.window);
-  const word = B.size < DAY ? '4-hour block' : B.size === DAY ? 'day' : 'week';
-  document.getElementById('bucketword').textContent = word;
-  const now = median(R.tcur.map((t) => t.c)), before = median(R.tprev.map((t) => t.c));
-  const land = landStats(R.tcur);
-  const pw = periodWords(days);
-  const costLine = R.tcur.length
-    ? `Typical Claude cost per request: ${usd(now)} across ${plural(priced(R.tcur), 'request')}. ${R.coverage.prevTracked ? (before === null ? `Nothing to compare with in ${pw.prev}.` : `${pw.prev.charAt(0).toUpperCase() + pw.prev.slice(1)}: ${usd(before)} (${change(now, before)}).`) : 'A comparison appears once there is a full earlier period.'} No target is set for cost.`
-    : '';
-  if (B.withData < 2) {
-    el.innerHTML = `<p class="empty">${esc(R.tcur.length
-      ? `All ${plural(R.tcur.length, 'request')} in this period fall in one ${word}, so there's no trend yet: ${land.rate === null ? 'none has finished' : `${pct(land.rate)} of ${n0(land.known)} landed`}, typical cost ${usd(now)}. Lines appear from the second ${word}.`
-      : 'No requests in this period yet.')}</p>`;
-    return;
-  }
-  el.innerHTML = `<div class="pair"><div><p class="h4">Requests that landed, per ${esc(word)} (target ${pct(TARGETS.landRate)})</p><div class="chart" id="c-land"></div></div>` +
-    `<div><p class="h4">Typical Claude cost per request, per ${esc(word)}</p><div class="chart" id="c-cost"></div></div></div>` +
-    `<p class="note">Dashed line: the target. A hollow grey point has fewer than ${TARGETS.minN} requests, too few to judge.</p>` +
-    `<p class="note">${esc(costLine)}</p>`;
-  const label = (b) => (B.size < DAY ? new Date(b.to).toLocaleTimeString('en-US', { hour: 'numeric' }) : fmtDate(b.to - 1));
-  chart('c-land', B.buckets, (b) => b.rate, (b) => b.known, (x) => pct(x), 1, TARGETS.landRate, label, 'Requests that landed over time');
-  chart('c-cost', B.buckets, (b) => b.cost, (b) => b.priced, usd, null, null, label, 'Typical cost per request over time');
-}
-
-/** A line over buckets sized to its container, so its 12px text stays 12px on a phone. */
-function chart(id, buckets, val, nOf, fmt, fixedMax, target, label, aria) {
-  const el = document.getElementById(id);
-  const W = Math.max(260, Math.floor(el.clientWidth || 320)), H = 150, padL = 50, padR = 12, top = 8;
-  const vals = buckets.map(val).filter((x) => x !== null && x !== undefined);
-  const max = fixedMax ?? Math.max(...vals, 1e-9) * 1.1;
-  const k = buckets.length;
-  const x = (i) => padL + (k === 1 ? (W - padL - padR) / 2 : (i * (W - padL - padR)) / (k - 1));
-  const y = (v) => top + (H - top) * (1 - v / max);
-  let s = `<svg viewBox="0 0 ${W} ${H + 22}" width="${W}" height="${H + 22}" role="img" aria-label="${esc(aria)}">`;
-  for (const f of [0, 0.5, 1]) s += `<line x1="${padL}" x2="${W - padR}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="var(--line)"/><text x="0" y="${y(max * f) + 4}">${esc(fmt(max * f))}</text>`;
-  if (target !== null) s += `<line x1="${padL}" x2="${W - padR}" y1="${y(target)}" y2="${y(target)}" stroke="var(--muted)" stroke-dasharray="4 3"/>`;
-  let d = '';
-  buckets.forEach((b, i) => { const v = val(b); if (v === null || v === undefined) return; d += (i > 0 && val(buckets[i - 1]) !== null && val(buckets[i - 1]) !== undefined ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1); });
-  s += `<path d="${d}" fill="none" stroke="var(--ink)" stroke-width="1.8"/>`;
-  buckets.forEach((b, i) => {
-    const v = val(b); if (v === null || v === undefined) return;
-    const thin = nOf(b) < TARGETS.minN;
-    s += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${thin ? 'var(--panel)' : 'var(--ink)'}" stroke="${thin ? 'var(--na)' : 'var(--ink)'}" stroke-width="1.5"><title>${esc(label(b))}: ${esc(fmt(v))} (${esc(plural(nOf(b), 'request'))})</title></circle>`;
-  });
-  const every = Math.max(1, Math.ceil(k / Math.max(2, Math.floor((W - padL) / 60))));
-  buckets.forEach((b, i) => {
-    if (i % every !== 0 && i !== k - 1) return;
-    if (i !== k - 1 && k - 1 - i < every) return; // leave room for the last label
-    const anchor = k > 1 && i === k - 1 ? 'end' : k > 1 && i === 0 ? 'start' : 'middle';
-    s += `<text x="${x(i)}" y="${H + 16}" text-anchor="${anchor}">${esc(label(b))}</text>`;
-  });
-  el.innerHTML = s + '</svg>';
-}
-
-function rowsHtml(head, rows) {
-  return `<div class="row head">${head.map((h) => `<span>${esc(h)}</span>`).join('')}</div>` +
-    rows.map((r) => `<div class="row ${r.cls || ''}">${r.cells.map((c, i) => `<span${i === r.rateCol ? ' class="rate"' : ''}>${i ? `<span class="lab">${esc(head[i])}</span>` : ''}${esc(c)}</span>`).join('')}</div>`).join('');
-}
-
-const helper = (who) => who.replace(/^Main conversation$/, 'Your chats').replace(/^Subagent: /, 'Helper: ');
-
-function work(R) {
-  const el = document.getElementById('work');
-  const split = workSplit(R.cur, R.prev);
-  if (!split.length) { el.innerHTML = '<p class="empty">No Claude work in this period yet.</p>'; return; }
-  const total = split.reduce((a, e) => ({ n: a.n + e.n, c: a.c + e.c, pn: a.pn + e.pn, pc: a.pc + e.pc, unpriced: a.unpriced + e.unpriced }), { n: 0, c: 0, pn: 0, pc: 0, unpriced: 0 });
-  const pw = periodWords(days);
-  const line = (e, label) => ({
-    cls: e.n < TARGETS.minN ? 'thin' : '',
-    cells: [label ?? helper(e.who), e.n ? `${usd(e.c)} · ${plural(e.n, 'call')}` : 'none', !R.coverage.prevTracked ? 'not collected yet' : e.pn ? `${usd(e.pc)} · ${plural(e.pn, 'call')}` : 'none', R.coverage.prevTracked && e.n && e.pn ? change(e.c, e.pc) : '—'],
-  });
-  el.innerHTML = rowsHtml(['Who', 'This period', pw.prev.charAt(0).toUpperCase() + pw.prev.slice(1), 'Change'], [...split.map((e) => line(e)), line(total, 'All of Claude')]) +
-    (total.unpriced ? `<p class="note">${esc(plural(total.unpriced, 'call'))} used a model with no known price and ${total.unpriced === 1 ? "isn't" : "aren't"} counted.</p>` : '');
-}
-
-function refused(R) {
-  const el = document.getElementById('refused');
-  const list = refusedSkills(R.cur);
-  const calls = R.cur.filter((r) => r.k === 'tool' && r.tl === 'Skill' && r.ok !== null && r.ok !== undefined).length;
-  if (!list.length) { el.innerHTML = `<p class="empty">${esc(calls ? `Claude wasn't blocked from any of the ${plural(calls, 'skill')} it used.` : "Claude hasn't used a skill in this period.")}</p>`; return; }
-  el.innerHTML = rowsHtml(['Skill', 'Blocked', 'Jev picked it', 'Last blocked'], list.map((e) => ({ cls: 'bad', rateCol: 1, cells: [e.skill, `${n0(e.refused)} of ${n0(e.calls)}`, n0(e.jevPicked), fmtTime(e.last)] })));
-}
-
-function tools(R) {
-  const el = document.getElementById('tools');
-  const list = failingTools(R.cur, R.prev).slice(0, 8);
-  const pw = periodWords(days);
-  if (!list.length) { el.innerHTML = `<p class="empty">${esc(R.cur.some((r) => r.k === 'tool') ? 'No tool failed more than 1 in 10 times.' : 'No tools used in this period.')}</p>`; return; }
-  el.innerHTML = rowsHtml(['Tool', 'Failed', pw.prev.charAt(0).toUpperCase() + pw.prev.slice(1), 'Change'], list.map((x) => ({
-    cls: x.thin ? 'thin' : 'bad', rateCol: 1,
-    cells: [x.label, `${pct(x.rate)} · ${n0(x.bad)} of ${n0(x.n)}${x.thin ? ' (too few)' : ''}`, !R.coverage.prevTracked ? 'not collected yet' : x.prev ? `${pct(x.prev.bad / x.prev.n)} · ${n0(x.prev.bad)} of ${n0(x.prev.n)}` : 'not used', R.coverage.prevTracked && x.prev ? pp(x.rate, x.prev.bad / x.prev.n).replace(' pp', ' points') : '—'],
-  })));
-}
-
-function wire(id, set) {
+function wire(id, set, remember = true) {
   const el = document.getElementById(id);
   el.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     for (const x of el.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
     set(b.dataset.v);
-    try { localStorage.setItem('cum.' + id, b.dataset.v); } catch {}
-    render();
+    if (remember) try { localStorage.setItem('cum.' + id, b.dataset.v); } catch {}
+    if (id === 'feedtype' && current) feed(current); else render();
   });
-  try { const saved = localStorage.getItem('cum.' + id); const b = saved && el.querySelector(`[data-v="${saved}"]`); if (b) { for (const x of el.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b)); set(saved); } } catch {}
+  if (remember) try { const saved = localStorage.getItem('cum.' + id); const b = saved && el.querySelector(`[data-v="${saved}"]`); if (b) { for (const x of el.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b)); set(saved); } } catch {}
 }
 wire('host', (v) => (host = v));
 wire('range', (v) => (days = Number(v)));
-document.getElementById('more').addEventListener('toggle', (e) => { if (e.target.open && current) details(current); });
-let resizeTimer = null;
-window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
+wire('feedtype', (v) => (feedKind = v), false);
+let resizeTimer = null, lastW = window.innerWidth;
+window.addEventListener('resize', () => { if (window.innerWidth === lastW) return; lastW = window.innerWidth; clearTimeout(resizeTimer); resizeTimer = setTimeout(() => current && costChart(current), 150); });
 render();
 </script>
 </body>

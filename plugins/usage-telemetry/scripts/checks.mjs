@@ -717,3 +717,600 @@ export function trendBuckets(turns, w) {
   }
   return { size, buckets, withData: buckets.filter((b) => b.n > 0).length }
 }
+
+// ---------- what the models did and what it cost (the top of the page) ----------
+
+const isNum = (x) => typeof x === 'number' && Number.isFinite(x)
+const sumOf = (list, f) => list.reduce((a, r) => a + (isNum(f(r)) ? f(r) : 0), 0)
+
+/**
+ * Build-time attribution, run once on every compact row (sorted by time):
+ *   - each Claude model call (k 'api') gets `as`, the skill active when it
+ *     ran: the /command typed on the turn's prompt, Jev's pick when Jev put
+ *     the skill's text into the chat (d.injected), or the last skill loaded
+ *     with the Skill tool (not refused) earlier in the same turn. A helper
+ *     agent inherits the main chat's skill unless it loaded its own. No
+ *     skill leaves `as` unset: the page shows it as "no skill".
+ *   - each tool call gets `xc`, its share of the cost of the Claude reply
+ *     that asked for it (same chat and agent, within 2 s; a reply that asked
+ *     for several tools is split evenly). A tool no reply matches has none.
+ * Mutates and returns `rows`.
+ */
+export function attribute(rows) {
+  const bySession = new Map()
+  for (const r of rows) {
+    if (r.s === undefined || r.s === null || r.s < 0) continue
+    if (!bySession.has(r.s)) bySession.set(r.s, [])
+    bySession.get(r.s).push(r)
+  }
+  for (const list of bySession.values()) {
+    list.sort((a, b) => a.t - b.t)
+    const injected = list.filter((r) => r.k === 'jev.decision' && r.sk && r.d?.injected)
+    const active = new Map()
+    for (const r of list) {
+      if (isPrompt(r)) {
+        active.clear()
+        const jev = injected.filter((d) => Math.abs(d.t - r.t) <= TARGETS.matchMs).sort((a, b) => Math.abs(a.t - r.t) - Math.abs(b.t - r.t))[0]
+        const start = r.sk ?? jev?.sk ?? null
+        if (start) active.set('main', start)
+      } else if (r.k === 'tool' && r.tl === 'Skill' && r.sk && r.ok !== false) {
+        active.set(r.a || 'main', r.sk)
+      } else if (r.k === 'api') {
+        const skill = active.get(r.a || 'main') ?? active.get('main')
+        if (skill) r.as = skill
+        else delete r.as
+      }
+    }
+    // Tools → the reply that asked for them.
+    const replies = new Map()
+    for (const r of list) if (r.k === 'api') (replies.get(r.a || 'main') ?? replies.set(r.a || 'main', []).get(r.a || 'main')).push(r)
+    const askedBy = new Map()
+    for (const r of list) {
+      if (r.k !== 'tool') continue
+      let best = null
+      for (const a of replies.get(r.a || 'main') ?? []) {
+        const gap = Math.abs(a.t - r.t)
+        if (gap <= 2000 && (best === null || gap < Math.abs(best.t - r.t))) best = a
+      }
+      if (best) (askedBy.get(best) ?? askedBy.set(best, []).get(best)).push(r)
+      else delete r.xc
+    }
+    for (const [reply, tools] of askedBy) for (const t of tools) {
+      if (isNum(reply.c)) t.xc = reply.c / tools.length
+      else delete t.xc
+    }
+  }
+  return rows
+}
+
+/** Change against the previous period: null when that period is not tracked. */
+export function deltaOf(cur, prev, tracked = true) {
+  if (!tracked || !isNum(cur) || !isNum(prev)) return null
+  if (prev === 0) return cur === 0 ? { text: 'no change', dir: 0 } : { text: 'new', dir: 1 }
+  const r = (cur - prev) / prev
+  const p = Math.round(Math.abs(r) * 100)
+  if (p === 0) return { text: 'no change', dir: 0 }
+  return { text: `${r > 0 ? 'up' : 'down'} ${p}%`, dir: r > 0 ? 1 : -1 }
+}
+
+/**
+ * OpenRouter spend between two times, from the key's own running total
+ * (every call on the key: the router, Jev, anything else):
+ *   'key'     a key check at or before `from` and one inside: the difference.
+ *   'partial' the first key check falls inside: routed calls before it
+ *             (their logged cost) plus the key's growth after it.
+ *   'router'  no key check at all: routed calls' logged cost only.
+ * Account-wide: key checks are not filtered by machine.
+ */
+export function openrouterSpend(rows, from, to) {
+  const keys = rows.filter((r) => r.k === 'openrouter.key' && r.t <= to && isNum(r.d?.total_usage)).sort((a, b) => a.t - b.t)
+  const routedIn = (a, b) => rows.filter((r) => r.k === 'router.call' && r.t > a && r.t <= b)
+  const last = keys[keys.length - 1]
+  const base = keys.filter((r) => r.t <= from).pop()
+  const routed = routedIn(from, to)
+  const routedCost = sumOf(routed, (r) => r.c)
+  if (last && base && last.t > from) return { usd: Math.max(0, last.d.total_usage - base.d.total_usage), basis: 'key', routed: routedCost, routedCalls: routed.length }
+  if (last && base) return { usd: 0, basis: 'key', routed: routedCost, routedCalls: routed.length }
+  const first = keys.find((r) => r.t > from)
+  if (first) return { usd: sumOf(routedIn(from, first.t), (r) => r.c) + (last.d.total_usage - first.d.total_usage), basis: 'partial', since: first.t, routed: routedCost, routedCalls: routed.length }
+  return { usd: routedCost, basis: 'router', routed: routedCost, routedCalls: routed.length }
+}
+
+/**
+ * Credit left on the OpenRouter account and how long it lasts at the recent
+ * burn rate: the key's total spend growth over the last `lookback` of key
+ * checks, per day. Null burn when the checks span under an hour or nothing
+ * was spent. Account-wide.
+ */
+export function creditBurn(rows, end, lookback = 7 * DAY) {
+  const keys = rows.filter((r) => r.k === 'openrouter.key' && r.t <= end && isNum(r.d?.total_usage)).sort((a, b) => a.t - b.t)
+  const last = keys[keys.length - 1]
+  if (!last) return null
+  const credit = isNum(last.d.total_credits) ? last.d.total_credits - last.d.total_usage : null
+  const first = keys.find((r) => r.t >= last.t - lookback)
+  const span = last.t - first.t
+  const spent = last.d.total_usage - first.d.total_usage
+  const perDay = span >= 3600000 && spent > 0 ? (spent / span) * DAY : null
+  return { asOf: last.t, credit, total: last.d.total_credits ?? null, perDay, span, daysLeft: perDay && credit !== null ? Math.max(0, credit) / perDay : null }
+}
+
+/** "under 1 hour", "5 hours", "3 days", "about 2 months": how long a number of days is, in words. */
+export function daysWords(d) {
+  if (!isNum(d)) return '—'
+  if (d < 1 / 24) return 'under 1 hour'
+  if (d < 1) return plural(Math.round(d * 24), 'hour')
+  if (d < 60) return plural(Math.round(d), 'day')
+  return `about ${plural(Math.round(d / 30), 'month')}`
+}
+
+/** The headline row for one period (cur/prev rows already filtered by machine; key figures account-wide). */
+export function headline({ cur, prev, rows, window: w, prevTracked }) {
+  const f = (list) => {
+    const tools = list.filter((r) => r.k === 'tool' && r.ok !== null && r.ok !== undefined)
+    const api = list.filter((r) => r.k === 'api')
+    return {
+      claude: sumOf(api, (r) => r.c),
+      unpriced: api.filter((r) => !isNum(r.c)).length,
+      prompts: list.filter(isPrompt).length,
+      calls: api.length,
+      routed: list.filter((r) => r.k === 'router.call').length,
+      tools: tools.length,
+      toolFails: tools.filter((r) => r.ok === false).length,
+    }
+  }
+  const a = f(cur), b = f(prev)
+  const or = openrouterSpend(rows, w.from, w.to)
+  const orPrev = openrouterSpend(rows, w.prevFrom, w.prevTo)
+  const orPrevTracked = prevTracked && orPrev.basis === 'key'
+  return {
+    cur: a,
+    prev: b,
+    openrouter: or,
+    openrouterPrev: orPrev,
+    credit: creditBurn(rows, w.to),
+    delta: {
+      claude: deltaOf(a.claude, b.claude, prevTracked),
+      prompts: deltaOf(a.prompts, b.prompts, prevTracked),
+      calls: deltaOf(a.calls, b.calls, prevTracked),
+      tools: deltaOf(a.tools, b.tools, prevTracked),
+      openrouter: deltaOf(or.usd, orPrev.usd, orPrevTracked),
+    },
+  }
+}
+
+/** Short model names for labels: "claude-opus-5-5-20260101" → "Opus 5.5", "z-ai/glm-5.3-flash" → "glm-5.3-flash". */
+export function modelName(m) {
+  if (!m) return 'unknown model'
+  const c = /^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?/.exec(m)
+  if (c) return `${c[1][0].toUpperCase()}${c[1].slice(1)} ${c[2]}${c[3] && c[3].length <= 2 ? '.' + c[3] : ''}`
+  return String(m).split('/').pop()
+}
+
+/**
+ * Cost per model per time bucket: hours for a 24-hour period, UTC days
+ * otherwise. Claude calls at list price, routed calls at what OpenRouter
+ * logged; a model with no price adds calls but no cost. `top` models by
+ * cost keep their own colour, the rest are "Other models".
+ */
+export function costByModel(cur, w, top = 5) {
+  const size = w.days <= 1 ? 3600000 : DAY
+  const start = Math.floor(w.from / size) * size
+  const k = Math.ceil((w.to - start) / size)
+  const buckets = Array.from({ length: k }, (_, i) => ({ from: Math.max(w.from, start + i * size), to: Math.min(w.to, start + (i + 1) * size), by: {}, total: 0, calls: 0 }))
+  const totals = new Map()
+  for (const r of cur) {
+    if (r.k !== 'api' && r.k !== 'router.call') continue
+    const key = (r.k === 'router.call' ? 'or:' : '') + (r.m ?? 'unknown')
+    const e = totals.get(key) ?? { key, model: r.m ?? null, via: r.k === 'router.call' ? 'openrouter' : 'claude', cost: 0, calls: 0 }
+    e.calls++
+    if (isNum(r.c)) e.cost += r.c
+    totals.set(key, e)
+  }
+  const ranked = [...totals.values()].sort((a, b) => b.cost - a.cost || b.calls - a.calls)
+  const keep = new Set(ranked.slice(0, top).map((e) => e.key))
+  const series = ranked.slice(0, top)
+  const rest = ranked.slice(top)
+  if (rest.length) series.push({ key: 'other', model: null, via: 'mixed', cost: sumOf(rest, (e) => e.cost), calls: sumOf(rest, (e) => e.calls), count: rest.length })
+  for (const r of cur) {
+    if (r.k !== 'api' && r.k !== 'router.call') continue
+    if (r.t <= w.from || r.t > w.to) continue
+    const b = buckets[Math.min(k - 1, Math.max(0, Math.floor((r.t - start) / size)))]
+    const key0 = (r.k === 'router.call' ? 'or:' : '') + (r.m ?? 'unknown')
+    const key = keep.has(key0) ? key0 : 'other'
+    b.calls++
+    if (isNum(r.c)) {
+      b.by[key] = (b.by[key] ?? 0) + r.c
+      b.total += r.c
+    }
+  }
+  return { size, buckets, series, total: sumOf(series, (e) => e.cost) }
+}
+
+/** Median duration of a list of turns (ms). */
+const medianDur = (turns) => median(turns.map((t) => t.dur))
+
+/**
+ * Where the work went, by skill: uses (Skill tool calls, typed /commands
+ * and Jev picks whose text Jev put into the chat), refused uses, the Claude cost of the model calls made while it
+ * was active (see attribute), and the typical length of the requests it was
+ * active in. Model calls with no active skill form the "no skill" row
+ * (skill null), whose uses are the requests with no skill.
+ */
+export function workBySkill(cur, turns) {
+  const m = new Map()
+  const get = (skill) => m.get(skill) ?? m.set(skill, { skill, uses: 0, failed: 0, cost: 0, calls: 0, turns: [] }).get(skill)
+  for (const r of cur) {
+    if (r.k === 'tool' && r.tl === 'Skill' && r.ok !== null && r.ok !== undefined) {
+      const e = get(r.sk ?? 'unnamed')
+      e.uses++
+      if (r.ok === false) e.failed++
+    } else if (isPrompt(r) && r.sk) get(r.sk).uses++
+    else if (r.k === 'jev.decision' && r.sk && r.d?.injected) get(r.sk).uses++
+    else if (r.k === 'api') {
+      const e = get(r.as ?? null)
+      e.calls++
+      if (isNum(r.c)) e.cost += r.c
+    }
+  }
+  for (const t of turns) {
+    const ak = t.ak ?? []
+    if (!ak.length) get(null).turns.push(t)
+    for (const s of ak) get(s).turns.push(t)
+  }
+  const none = m.get(null)
+  if (none) none.uses = none.turns.length
+  return [...m.values()]
+    .map(({ turns: ts, ...e }) => ({ ...e, ms: medianDur(ts), failRate: e.skill !== null && e.uses ? e.failed / e.uses : null }))
+    .sort((a, b) => b.cost - a.cost || b.uses - a.uses)
+}
+
+/**
+ * By connector (MCP server) and plugin: connector tool calls with their
+ * failures, typical time and the cost of the Claude replies that asked for
+ * them (xc); plugin skills ("plugin:skill") summed per plugin from workBySkill.
+ */
+export function workByConnector(cur, turns) {
+  const m = new Map()
+  for (const r of cur) {
+    if (r.k !== 'tool' || !r.mc) continue
+    const e = m.get(r.mc) ?? { name: r.mc, kind: 'connector', calls: 0, failed: 0, cost: 0, ms: [] }
+    e.calls++
+    if (r.ok === false) e.failed++
+    if (isNum(r.xc)) e.cost += r.xc
+    if (isNum(r.ms)) e.ms.push(r.ms)
+    m.set(r.mc, e)
+  }
+  const out = [...m.values()].map((e) => ({ ...e, ms: median(e.ms), failRate: e.calls ? e.failed / e.calls : null }))
+  const plugins = new Map()
+  for (const s of workBySkill(cur, turns)) {
+    if (!s.skill || !s.skill.includes(':')) continue
+    const name = s.skill.split(':')[0]
+    const e = plugins.get(name) ?? { name, kind: 'plugin', calls: 0, failed: 0, cost: 0, ms: null }
+    e.calls += s.uses
+    e.failed += s.failed
+    e.cost += s.cost
+    e.ms = e.ms === null ? s.ms : Math.max(e.ms, s.ms ?? 0)
+    plugins.set(name, e)
+  }
+  for (const e of plugins.values()) out.push({ ...e, failRate: e.calls ? e.failed / e.calls : null })
+  return out.sort((a, b) => b.cost - a.cost || b.calls - a.calls)
+}
+
+/**
+ * By subagent type: how many were started (Agent/Task tool calls), how many
+ * failed, how long they ran (runs in the foreground only: a background
+ * run's call returns at once), and the Claude cost of their own model calls.
+ * The main conversation comes last, for scale.
+ */
+export function workBySubagent(cur) {
+  const m = new Map()
+  const get = (type) => m.get(type) ?? m.set(type, { type, calls: 0, failed: 0, cost: 0, modelCalls: 0, ms: [] }).get(type)
+  for (const r of cur) {
+    if (r.k === 'tool' && (r.tl === 'Agent' || r.tl === 'Task')) {
+      const e = get(r.st ?? 'general-purpose')
+      e.calls++
+      if (r.ok === false) e.failed++
+      if (isNum(r.ms) && !r.bg) e.ms.push(r.ms)
+      if (r.bg) e.background = (e.background ?? 0) + 1
+    } else if (r.k === 'api' && r.a && r.a.startsWith('subagent:')) {
+      const e = get(r.a.slice(9))
+      e.modelCalls++
+      if (isNum(r.c)) e.cost += r.c
+    }
+  }
+  const list = [...m.values()].map((e) => ({ ...e, ms: median(e.ms), failRate: e.calls ? e.failed / e.calls : null })).sort((a, b) => b.cost - a.cost || b.calls - a.calls)
+  const main = cur.filter((r) => r.k === 'api' && (!r.a || r.a === 'main'))
+  return { list, main: { cost: sumOf(main, (r) => r.c), modelCalls: main.length } }
+}
+
+/**
+ * Which model served what: rows are models, columns are skills (Claude
+ * calls, by the skill active when they ran, "no skill" as null) and task
+ * kinds (routed calls, by category). Cells hold calls and cost.
+ */
+export function modelGrid(cur, topCols = 8) {
+  const cells = new Map()
+  const models = new Map()
+  const cols = new Map()
+  for (const r of cur) {
+    let col
+    if (r.k === 'api') col = 'skill:' + (r.as ?? '')
+    else if (r.k === 'router.call') col = 'task:' + (r.d?.category ?? '')
+    else continue
+    const model = (r.k === 'router.call' ? 'or:' : '') + (r.m ?? 'unknown')
+    const key = model + '|' + col
+    const cell = cells.get(key) ?? { calls: 0, cost: 0 }
+    cell.calls++
+    if (isNum(r.c)) cell.cost += r.c
+    cells.set(key, cell)
+    const me = models.get(model) ?? { key: model, model: r.m ?? null, via: r.k === 'router.call' ? 'openrouter' : 'claude', calls: 0, cost: 0 }
+    me.calls++
+    if (isNum(r.c)) me.cost += r.c
+    models.set(model, me)
+    const ce = cols.get(col) ?? { key: col, kind: col.startsWith('skill:') ? 'skill' : 'task', name: col.slice(col.indexOf(':') + 1) || null, calls: 0, cost: 0 }
+    ce.calls++
+    if (isNum(r.c)) ce.cost += r.c
+    cols.set(col, ce)
+  }
+  const rank = (a, b) => b.cost - a.cost || b.calls - a.calls
+  const all = [...cols.values()]
+  const skills = all.filter((c) => c.kind === 'skill').sort(rank)
+  const tasks = all.filter((c) => c.kind === 'task').sort(rank)
+  const shown = [...skills.slice(0, topCols), ...tasks.slice(0, topCols)]
+  const hidden = [...skills.slice(topCols), ...tasks.slice(topCols)]
+  const cell = (m, c) => cells.get(m + '|' + c) ?? null
+  const rows = [...models.values()].sort(rank).map((m) => {
+    const other = { calls: 0, cost: 0 }
+    for (const c of hidden) {
+      const x = cell(m.key, c.key)
+      if (x) { other.calls += x.calls; other.cost += x.cost }
+    }
+    return { ...m, cells: shown.map((c) => cell(m.key, c.key)), other: other.calls ? other : null }
+  })
+  return { cols: shown, hiddenCols: hidden.length, rows }
+}
+
+// ---------- Jev: picks, confidence, and paid against free ----------
+
+/** Who decided a Jev decision, from d.decidedBy. */
+export const JEV_TIERS = [
+  { id: 'jev', paid: true, label: 'Jev' },
+  { id: 'paid-backup', paid: true, label: 'Backup model' },
+  { id: 'free-backup', paid: false, label: 'Free backup model' },
+  { id: 'builtin', paid: false, label: "Claude Code's own classifier" },
+  { id: 'unknown', paid: null, label: 'Not recorded' },
+]
+
+export function tierOf(decidedBy) {
+  const d = String(decidedBy ?? '').trim()
+  if (d === 'jev') return 'jev'
+  if (/^backup\b/.test(d)) {
+    const model = d.slice(6).trim()
+    return model === 'openrouter/free' || model.endsWith(':free') ? 'free-backup' : 'paid-backup'
+  }
+  if (d === 'built-in classifier') return 'builtin'
+  return 'unknown'
+}
+
+export const paidOf = (decidedBy) => JEV_TIERS.find((t) => t.id === tierOf(decidedBy)).paid
+
+/**
+ * Each decision with what became of it:
+ *   miss   a flagged misroute (jev.miss) matched to it: same chat, the
+ *          decision whose pick matches the miss's (when one does), nearest
+ *          in time. Each miss marks one decision.
+ *   land   the outcome of the request it decided: the turn in the same chat
+ *          starting within 2 min of it (true landed, false pushed back, null
+ *          no reply yet or no turn found).
+ *   ms     how long Jev took: wideMs + rerankMs (either may be missing).
+ * Also returns misses no decision in the period matched.
+ */
+export function jevOutcomes(cur, turns) {
+  const decisions = cur.filter((r) => r.k === 'jev.decision').map((r) => ({ r, tier: tierOf(r.d?.decidedBy), miss: false, land: null, turn: false, ms: null }))
+  const bySession = new Map()
+  for (const d of decisions) (bySession.get(d.r.s) ?? bySession.set(d.r.s, []).get(d.r.s)).push(d)
+  let unmatched = 0
+  for (const m of cur.filter((r) => r.k === 'jev.miss')) {
+    const list = (bySession.get(m.s) ?? []).filter((d) => !d.miss)
+    const pick = m.d?.jevPick ?? null
+    const same = list.filter((d) => (d.r.sk ?? null) === pick)
+    const pool = same.length ? same : list
+    const best = pool.sort((a, b) => Math.abs(a.r.t - m.t) - Math.abs(b.r.t - m.t))[0]
+    if (best) best.miss = true
+    else unmatched++
+  }
+  const turnsBy = new Map()
+  for (const t of turns) (turnsBy.get(t.s) ?? turnsBy.set(t.s, []).get(t.s)).push(t)
+  for (const d of decisions) {
+    const near = (turnsBy.get(d.r.s) ?? []).filter((t) => Math.abs(t.t - d.r.t) <= TARGETS.matchMs).sort((a, b) => Math.abs(a.t - d.r.t) - Math.abs(b.t - d.r.t))[0]
+    if (near) { d.turn = true; d.land = near.land ?? null }
+    const w = d.r.d?.wideMs, rr = d.r.d?.rerankMs
+    d.ms = isNum(w) || isNum(rr) ? (isNum(w) ? w : 0) + (isNum(rr) ? rr : 0) : null
+  }
+  return { decisions, unmatchedMisses: unmatched }
+}
+
+const outcomeStats = (list, total) => {
+  const known = list.filter((d) => d.land !== null)
+  const misses = list.filter((d) => d.miss).length
+  return {
+    decisions: list.length,
+    share: total ? list.length / total : null,
+    picked: list.filter((d) => d.r.sk).length,
+    misses,
+    missRate: list.length ? misses / list.length : null,
+    known: known.length,
+    landed: known.filter((d) => d.land).length,
+    pushedBack: known.filter((d) => !d.land).length,
+    landRate: known.length ? known.filter((d) => d.land).length / known.length : null,
+    ms: median(list.map((d) => d.ms)),
+    thin: list.length < TARGETS.minN,
+  }
+}
+
+/** Paid against free: one row per tier that decided anything, plus a total for paid and for free. */
+export function jevTierStats(cur, turns) {
+  const { decisions, unmatchedMisses } = jevOutcomes(cur, turns)
+  const total = decisions.length
+  const tiers = JEV_TIERS.map((t) => ({ ...t, ...outcomeStats(decisions.filter((d) => d.tier === t.id), total) })).filter((t) => t.decisions > 0 || t.id === 'jev')
+  const group = (paid) => outcomeStats(decisions.filter((d) => JEV_TIERS.find((t) => t.id === d.tier).paid === paid), total)
+  return { total, tiers, paid: group(true), free: group(false), unmatchedMisses }
+}
+
+/** Per picked skill (null = picked nothing): picks, flagged wrong, landed and pushed back. */
+export function jevPicks(cur, turns) {
+  const { decisions } = jevOutcomes(cur, turns)
+  const m = new Map()
+  for (const d of decisions) {
+    const k = d.r.sk ?? null
+    ;(m.get(k) ?? m.set(k, []).get(k)).push(d)
+  }
+  return [...m.entries()].map(([skill, list]) => ({ skill, ...outcomeStats(list, decisions.length) })).sort((a, b) => (a.skill === null) - (b.skill === null) || b.decisions - a.decisions)
+}
+
+/** How sure Jev was: its fit score for the pick, or the best fit when it picked nothing, in bands. */
+export const CONF_BANDS = [[0, 0.3, 'under 30%'], [0.3, 0.5, '30–50%'], [0.5, 0.7, '50–70%'], [0.7, 0.9, '70–90%'], [0.9, Infinity, '90% or more']]
+export function jevConfidence(cur) {
+  const bands = CONF_BANDS.map(([lo, hi, label]) => ({ lo, hi, label, picked: 0, nothing: 0 }))
+  let unknown = 0
+  for (const r of cur) {
+    if (r.k !== 'jev.decision') continue
+    const c = r.d?.conf
+    if (!isNum(c)) { unknown++; continue }
+    const b = bands.find((x) => c >= x.lo && c < x.hi) ?? bands[bands.length - 1]
+    if (r.sk) b.picked++
+    else b.nothing++
+  }
+  return { bands, unknown }
+}
+
+/** The fit score a decision rests on (build time, from the raw decision data). */
+export function confidenceOf(pick, data = {}) {
+  const fits = data?.rerank?.fits
+  if (pick && fits && isNum(fits[pick])) return fits[pick]
+  if (!pick && fits && Object.values(fits).some(isNum)) return Math.max(...Object.values(fits).filter(isNum))
+  const top = Array.isArray(data?.top) ? data.top[0] : null
+  if (top && isNum(top.probability) && (!pick || top.name === pick)) return top.probability
+  return null
+}
+
+/** The benchmark file, if it has the expected shape; null otherwise. */
+export function readTierBenchmark(x) {
+  if (!x || typeof x !== 'object' || !x.tiers || typeof x.tiers !== 'object') return null
+  const tiers = {}
+  for (const id of ['jev', 'paid', 'free']) {
+    const t = x.tiers[id]
+    if (t && isNum(t.right) && isNum(t.of) && t.of > 0) tiers[id] = { right: t.right, of: t.of, rate: t.right / t.of }
+  }
+  if (!Object.keys(tiers).length) return null
+  return { ranAt: typeof x.ranAt === 'string' ? x.ranAt : null, cases: isNum(x.cases) ? x.cases : null, tiers }
+}
+
+// ---------- the model router, chats and the activity feed ----------
+
+/** Routed calls per task kind, and each model asked for against the one that answered. */
+export function routerDetail(cur) {
+  const calls = cur.filter((r) => r.k === 'router.call')
+  const cats = new Map()
+  for (const r of calls) {
+    const k = r.d?.category ?? 'not given'
+    const e = cats.get(k) ?? { category: k, calls: 0, errors: 0, fallbacks: 0, cost: 0, ms: [] }
+    e.calls++
+    if (r.ok === false) e.errors++
+    else if (r.d?.fallbackFrom) e.fallbacks++
+    if (isNum(r.c)) e.cost += r.c
+    if (isNum(r.d?.ms)) e.ms.push(r.d.ms)
+    cats.set(k, e)
+  }
+  const pairs = new Map()
+  for (const r of calls) {
+    const asked = r.d?.requested ?? r.d?.fallbackFrom ?? r.m ?? null
+    const answered = r.ok === false ? null : r.m ?? null
+    const k = `${asked}→${answered}`
+    const e = pairs.get(k) ?? { asked, answered, calls: 0, errors: 0, fallbacks: 0, cost: 0 }
+    e.calls++
+    if (r.ok === false) e.errors++
+    else if (r.d?.fallbackFrom || (asked && answered && asked !== answered)) e.fallbacks++
+    if (isNum(r.c)) e.cost += r.c
+    pairs.set(k, e)
+  }
+  const problems = calls.filter((r) => r.ok === false || r.d?.fallbackFrom).sort((a, b) => b.t - a.t).slice(0, 5)
+  return {
+    n: calls.length,
+    cost: sumOf(calls, (r) => r.c),
+    categories: [...cats.values()].map((e) => ({ ...e, ms: median(e.ms) })).sort((a, b) => b.calls - a.calls),
+    pairs: [...pairs.values()].sort((a, b) => b.calls - a.calls),
+    problems,
+  }
+}
+
+/** The chats that cost the most: one row per chat, most expensive first. */
+export function topChats(cur, turns, sessions = [], limit = 10) {
+  const m = new Map()
+  for (const r of cur) {
+    if (r.s === undefined || r.s === null || r.s < 0) continue
+    const e = m.get(r.s) ?? { s: r.s, id: sessions[r.s] ?? null, h: r.h, start: r.t, end: r.t, models: new Set(), skills: new Map(), prompts: 0, pushedBack: 0, cost: 0, calls: 0 }
+    e.start = Math.min(e.start, r.t)
+    e.end = Math.max(e.end, r.t)
+    if (isPrompt(r)) e.prompts++
+    if (r.k === 'api' || r.k === 'router.call') {
+      if (r.m) e.models.add(r.m)
+    }
+    if (r.k === 'api') {
+      e.calls++
+      if (isNum(r.c)) e.cost += r.c
+      const k = r.as ?? null
+      e.skills.set(k, (e.skills.get(k) ?? 0) + (isNum(r.c) ? r.c : 0))
+    }
+    m.set(r.s, e)
+  }
+  for (const t of turns) if (m.has(t.s) && t.land === false) m.get(t.s).pushedBack++
+  return [...m.values()]
+    .map((e) => {
+      const named = [...e.skills.entries()].filter(([k]) => k !== null).sort((a, b) => b[1] - a[1])[0]
+      const { skills, ...rest } = e
+      return { ...rest, models: [...e.models], topSkill: named ? named[0] : null, length: e.end - e.start }
+    })
+    .sort((a, b) => b.cost - a.cost || b.prompts - a.prompts)
+    .slice(0, limit)
+}
+
+export const FEED_TYPES = ['model', 'tool', 'connector', 'subagent', 'router', 'jev']
+
+/** One activity row's type, or null for rows the feed does not show. */
+export function feedType(r) {
+  if (r.k === 'api') return 'model'
+  if (r.k === 'router.call') return 'router'
+  if (r.k === 'jev.decision') return 'jev'
+  if (r.k === 'tool') return r.tl === 'Agent' || r.tl === 'Task' ? 'subagent' : r.mc ? 'connector' : 'tool'
+  return null
+}
+
+/** The newest activity first: [{ t, h, type, name, model, tokensIn, tokensOut, cost, ms, ok }]. */
+export function activityFeed(cur, { type = 'all', limit = 100 } = {}) {
+  const out = []
+  for (let i = cur.length - 1; i >= 0 && out.length < limit; i--) {
+    const r = cur[i]
+    const ft = feedType(r)
+    if (!ft || (type !== 'all' && ft !== type)) continue
+    let name
+    if (ft === 'model') name = !r.a || r.a === 'main' ? (r.as ? `Main chat · ${r.as}` : 'Main chat') : `Subagent: ${r.a.slice(9)}${r.as ? ` · ${r.as}` : ''}`
+    else if (ft === 'router') name = r.d?.category ?? 'routed call'
+    else if (ft === 'jev') name = r.sk ? `picked ${r.sk}` : 'picked nothing'
+    else if (ft === 'subagent') name = r.st ?? 'general-purpose'
+    else if (ft === 'connector') name = `${r.mc} · ${String(r.tl).split('__').slice(2).join('__')}`
+    else name = r.tl === 'Skill' ? `Skill: ${r.sk ?? 'unnamed'}` : r.tl
+    const ms = ft === 'router' ? r.d?.ms : ft === 'jev' ? (isNum(r.d?.wideMs) || isNum(r.d?.rerankMs) ? (r.d?.wideMs ?? 0) + (r.d?.rerankMs ?? 0) : null) : r.ms
+    out.push({
+      t: r.t, h: r.h, type: ft, name,
+      model: ft === 'jev' ? (JEV_TIERS.find((x) => x.id === tierOf(r.d?.decidedBy)).label) : r.m ?? null,
+      tokensIn: isNum(r.i) ? r.i : null, tokensOut: isNum(r.o) ? r.o : null,
+      cost: ft === 'model' || ft === 'router' ? (isNum(r.c) ? r.c : null) : isNum(r.xc) ? r.xc : null,
+      costKind: ft === 'model' || ft === 'router' ? 'own' : 'reply',
+      ms: isNum(ms) ? ms : null,
+      // A Jev decision that picked nothing did not fail; model calls that were logged answered.
+      ok: ft === 'jev' ? null : r.ok === false ? false : r.ok === true ? true : ft === 'model' ? true : null,
+    })
+  }
+  return out
+}

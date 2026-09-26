@@ -5,7 +5,7 @@
  *
  *   node dashboard.mjs [--input events.jsonl|export.json] [--source local|supabase]
  *                      [--out dashboard.html] [--state-dir dir] [--days 180] [--force]
- *                      [--now ISO-time] [--help]
+ *                      [--now ISO-time] [--tiers jev-tiers.json] [--help]
  *
  * Input is the collector's ~/.claude/usage-telemetry/events.jsonl by default
  * (`--source local`, this machine only), or a JSON array exported from
@@ -13,6 +13,10 @@
  * host and range in the browser, measured back from the build time; nothing
  * is fetched. It offers ranges up to 90 days, so it carries 180 (each range
  * is compared with the one before it).
+ *
+ * The optional Jev benchmark (`--tiers`, default
+ * ~/.claude/usage-telemetry/jev-tiers.json: the same test prompts put to Jev,
+ * a paid and a free decider) is inlined as DATA.jevTiers, or null.
  *
  * Every run:
  *   1. snapshots the DATA of the page it is about to replace to
@@ -26,14 +30,14 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DAY, runChecks, usd } from './checks.mjs'
+import { DAY, attribute, confidenceOf, readTierBenchmark, runChecks, usd } from './checks.mjs'
 import { dedupe } from './lib.mjs'
 import { turnsFrom } from './turns.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
 /** Keys the page reads from DATA. A build missing one would render blank or wrong. */
-export const REQUIRED_KEYS = { generatedAt: 'string', source: 'string', firstEventAt: 'any', lastEventAt: 'any', sessions: 'array', rows: 'array', turns: 'array', prices: 'object', summary: 'object' }
+export const REQUIRED_KEYS = { generatedAt: 'string', source: 'string', firstEventAt: 'any', lastEventAt: 'any', sessions: 'array', rows: 'array', turns: 'array', prices: 'object', summary: 'object', jevTiers: 'any' }
 export const SNAPSHOTS_KEPT = 30
 
 /** Events from a JSONL file or a JSON array (a Supabase export), with a count of lines that did not parse. */
@@ -100,6 +104,9 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
     if (event.agent) row.a = event.agent
     if (event.model) row.m = event.model
     if (event.output_tokens) row.o = Number(event.output_tokens)
+    // Everything the model read: fresh input plus cache reads and writes.
+    const tokensIn = Number(event.input_tokens ?? 0) + Number(event.cache_read_tokens ?? 0) + Number(event.cache_write_tokens ?? 0)
+    if (tokensIn > 0) row.i = tokensIn
     if (event.cost_usd !== null && event.cost_usd !== undefined) row.c = Number(event.cost_usd)
     if (event.tool) row.tl = event.tool
     if (event.skill) row.sk = event.skill
@@ -107,9 +114,15 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
     if (event.ok !== null && event.ok !== undefined) row.ok = event.ok
     const data = event.data ?? {}
     if (event.kind === 'jev.decision') {
-      row.d = { decidedBy: data.decidedBy ?? null }
+      row.d = { decidedBy: data.decidedBy ?? null, conf: confidenceOf(event.skill ?? null, data), wideMs: data.wideMs ?? null, rerankMs: data.rerankMs ?? null }
+      if (data.injected) row.d.injected = true
     } else if (event.kind === 'router.call') {
-      row.d = { category: data.category ?? null, fallbackFrom: data.fallbackFrom ?? null, error: data.error ?? null }
+      row.d = { category: data.category ?? null, fallbackFrom: data.fallbackFrom ?? null, error: data.error ?? null, requested: data.requested ?? null, ms: data.ms ?? null }
+    } else if (event.kind === 'tool') {
+      if (Number.isFinite(data.ms)) row.ms = data.ms
+      if (data.subagent_type) row.st = data.subagent_type
+      // A background subagent's tool call returns at once: its time is not how long it ran.
+      if (data.subagent_type && data.background) row.bg = 1
     } else if (event.kind === 'openrouter.key' || event.kind === 'jev.miss') {
       row.d = data
     } else if (event.kind === 'prompt') {
@@ -120,6 +133,8 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
     rows.push(row)
   }
   rows.sort((a, b) => a.t - b.t)
+  // Which skill each model call worked for, and which reply asked for each tool (checks.mjs).
+  attribute(rows)
   return { sessions, rows, turns: turnsFrom(rows) }
 }
 
@@ -161,11 +176,11 @@ export function summarize(payload) {
 }
 
 /** The full DATA object for the page. */
-export function buildPayload(events, { source = 'local', now = Date.now(), days = 180 } = {}) {
+export function buildPayload(events, { source = 'local', now = Date.now(), days = 180, tiers = null } = {}) {
   const payload = compact(events, { days, now })
   const last = payload.rows[payload.rows.length - 1]
   const first = payload.rows[0]
-  const full = { source, generatedAt: new Date(now).toISOString(), firstEventAt: first ? new Date(first.t).toISOString() : null, lastEventAt: last ? new Date(last.t).toISOString() : null, prices: pricesProvenance(), ...payload }
+  const full = { source, generatedAt: new Date(now).toISOString(), firstEventAt: first ? new Date(first.t).toISOString() : null, lastEventAt: last ? new Date(last.t).toISOString() : null, prices: pricesProvenance(), jevTiers: readTierBenchmark(tiers), ...payload }
   full.summary = summarize(full)
   return full
 }
@@ -311,6 +326,8 @@ export const USAGE = `Build the Claude usage dashboard.
   --state-dir <dir>   snapshots/ and runs.log (default ~/.claude/usage-telemetry)
   --days <n>          days of events the page carries (default 180)
   --force             publish even when a guard trips
+  --tiers <file>      Jev benchmark, paid against free (default
+                      ~/.claude/usage-telemetry/jev-tiers.json; shown as "not run yet" when absent)
   --now <ISO time>    testing only: build as if at this time
   --help              print this and exit without building
 
@@ -361,7 +378,17 @@ function main(argv) {
     parsed = parseEvents(readFileSync(input, 'utf8'))
   } catch {}
   const problem = sourceProblem(parsed, source)
-  const payload = problem ? null : buildPayload(parsed.events, { source, now, days })
+  const tiersFile = opt('--tiers', join(claudeDir, 'usage-telemetry', 'jev-tiers.json'))
+  let tiers = null
+  if (existsSync(tiersFile)) {
+    try {
+      tiers = JSON.parse(readFileSync(tiersFile, 'utf8'))
+      if (!readTierBenchmark(tiers)) console.error(`${tiersFile} is not a Jev benchmark ({ranAt, cases, tiers: {jev|paid|free: {right, of}}}); left out`)
+    } catch (error) {
+      console.error(`${tiersFile} could not be read (${error.message}); left out`)
+    }
+  }
+  const payload = problem ? null : buildPayload(parsed.events, { source, now, days, tiers })
   const guards = checkGuards(payload, previous, { problem, previousUnreadable })
   const publish = payload && (!guards.length || force)
   appendFileSync(join(stateDir, 'runs.log'), runLine({ at: now, payload, events: parsed?.events.length ?? 0, guards, published: publish ? (guards.length ? 'forced' : 'yes') : 'no' }) + '\n')
