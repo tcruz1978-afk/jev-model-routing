@@ -37,10 +37,38 @@ with `sk-or-v1-`.
 2. Add credit under **Settings → Credits**. **$10** is plenty: a Jev decision costs about
    $0.00001, and $10 of lifetime credit raises the free-model allowance from 50 to 1,000
    requests a day.
-3. Create a key under **Settings → Keys → Create key** and store it somewhere private.
+3. Create **one key per place you work** (see [One key per environment](#one-key-per-environment))
+   and store them somewhere private.
 4. Follow one of the setup sections below, then [Check it works](#check-it-works).
 
 Setting it up for other people? See [Sharing with a team](#sharing-with-a-team).
+
+## One key per environment
+
+Give every place you run Claude Code its own OpenRouter key with its own credit limit:
+each cloud environment, and each computer. One key shared everywhere means one runaway
+chat can drain your whole balance, and you can't tell which place spent what.
+
+1. At [openrouter.ai](https://openrouter.ai) → **Settings → Keys → Create key**, make one
+   key per place, named after it, for example:
+
+   | Key name | Used by | Credit limit (example) |
+   |---|---|---|
+   | `cloud-main` | your main cloud environment | $5, resets daily |
+   | `cloud-other` | any other cloud environment you use | $2, resets daily |
+   | `my-pc` | your computer (every folder on it shares one key) | $5, resets daily |
+
+2. Put each key in its place and nowhere else; never paste a key into a chat:
+   - **A cloud environment:** follow [Setup: Claude Code on the web](#setup-claude-code-on-the-web),
+     step 6, with that environment's key. To swap a key, edit the environment and replace the
+     OpenRouter credential's value.
+   - **Your computer:** set `OPENROUTER_API_KEY` to that computer's key
+     ([Setup: Claude Code on your computer](#setup-claude-code-on-your-computer), step 2).
+3. When every place has its own key, set the old shared key's limit to **$0** instead of
+   deleting it: anything still using it stops spending and shows up as an error you can trace.
+4. Pick limits from what a normal day costs you. A Jev decision costs about $0.00001; the
+   model router and routing checks cost more. Check each key's spend on OpenRouter's
+   **Activity** page, filtered by key.
 
 ## Sharing with a team
 
