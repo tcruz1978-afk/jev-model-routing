@@ -1073,6 +1073,8 @@ export function callRecord(prompt, opts, result, ms, error, env = process.env) {
     via: result?.via ?? (opts.local ? 'local' : opts.free ? 'free' : 'paid'),
     tried: result?.tried ?? [],
     open: Boolean(opts.open),
+    // Answered a prompt in Claude's place (the hook's router on every prompt), not a call Claude made.
+    offload: Boolean(opts.offload),
     decidedBy: result ? (result.reason.split(' · ').find((part) => part.startsWith('decided by')) ?? null) : null,
     requested: result?.models?.[0] ?? opts.model ?? null,
     model: result?.model ?? null,

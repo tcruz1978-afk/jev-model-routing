@@ -29,7 +29,7 @@ export const LIVE = {
 
 export const LIVE_COLUMNS = ['id', 'kind', 'ts', 'session', 'host', 'project', 'agent', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'tool', 'skill', 'mcp_server', 'ok']
 /** The only kinds whose `data` payload is read whole. */
-export const DATA_KINDS = ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool', 'jq.decision', 'jq.outcome']
+export const DATA_KINDS = ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool', 'jq.decision', 'jq.outcome', 'jev.arm']
 /** A prompt's data is read only for these labels: its kind of request, never its words. */
 export const PROMPT_FIELDS = ['category', 'slash', 'correction']
 
@@ -152,6 +152,7 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
       if (data.injected) row.d.injected = true
     } else if (event.kind === 'router.call') {
       row.d = { category: data.category ?? null, fallbackFrom: data.fallbackFrom ?? null, error: data.error ?? null, requested: data.requested ?? null, ms: data.ms ?? null }
+      if (data.offload) row.d.offload = true
     } else if (event.kind === 'tool') {
       if (Number.isFinite(data.ms)) row.ms = data.ms
       if (data.subagent_type) row.st = data.subagent_type
@@ -161,6 +162,8 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
       row.d = data
     } else if (event.kind === 'jq.decision') {
       row.d = { jq: data.jq ?? null, answer: data.answer ?? null, conf: Number.isFinite(data.confidence) ? data.confidence : null, decidedBy: data.decidedBy ?? null }
+    } else if (event.kind === 'jev.arm') {
+      row.d = { arm: data.arm ?? null }
     } else if (event.kind === 'jq.outcome') {
       row.d = { jq: data.jq ?? null, outcome: data.outcome ?? null }
     } else if (event.kind === 'prompt') {

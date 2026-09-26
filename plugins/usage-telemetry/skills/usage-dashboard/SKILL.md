@@ -25,7 +25,7 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
    `insert into claude_usage.events (id,kind,ts,session,host,project,agent,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,tool,skill,mcp_server,ok,data) select ...,coalesce(data,'{}') from jsonb_populate_recordset(null::claude_usage.events, '<json array>'::jsonb) on conflict (id) do update set output_tokens=excluded.output_tokens, cost_usd=excluded.cost_usd, ok=excluded.ok, data=excluded.data`,
    then delete the outbox file. Escape `'` in the JSON as `''`.
 3. Get every host's events, not just this machine's: with the Supabase MCP,
-   `select coalesce(json_agg(e order by ts), '[]') from (select id,kind,ts,session,host,project,agent,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,tool,skill,mcp_server,ok, case when kind in ('jev.decision','jev.miss','router.call','openrouter.key','tool','jq.decision','jq.outcome') then data when kind = 'prompt' then jsonb_build_object('category', data->'category', 'slash', data->'slash', 'correction', data->'correction') else '{}'::jsonb end as data from claude_usage.events where ts > now() - interval '180 days') e`
+   `select coalesce(json_agg(e order by ts), '[]') from (select id,kind,ts,session,host,project,agent,model,input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,cost_usd,tool,skill,mcp_server,ok, case when kind in ('jev.decision','jev.miss','router.call','openrouter.key','tool','jq.decision','jq.outcome','jev.arm') then data when kind = 'prompt' then jsonb_build_object('category', data->'category', 'slash', data->'slash', 'correction', data->'correction') else '{}'::jsonb end as data from claude_usage.events where ts > now() - interval '180 days') e`
    (180 days: the page's longest range is 90, compared with the 90 before)
    and save the array to a file. For a large result, run the query in a
    subagent that writes the file and returns only the row count. Without the
@@ -109,6 +109,16 @@ The page opens on **Rankings**, laid out like OpenRouter's model rankings
    overruled, calibration. Together: measured cost, measured savings, net,
    share of requests touched. OpenRouter spend that neither explains is shown
    apart and never charged to either.
+   **On/off comparison**: jev-skill-suggestion (from v0.5.2) puts every
+   session in one group, the same one each time (`armOf`: 60% Jev and the
+   router, 20% Jev without the router, 20% neither; set `compareOff` and
+   `compareNoRouter` in the mod's options, 0 and 0 to stop it) and logs it as
+   `jev.arm`. Jev = "Jev, no router" against "Neither"; router = "Jev and the
+   router" against "Jev, no router"; all together = "Jev and the router"
+   against "Neither": landed, typical cost per request (Claude, routed calls
+   and Jev's decision) and typical time, judged from 10 requests with an
+   outcome a side. Once it can judge, it replaces the unfair "with against
+   without" figures and gives the net contribution.
 
 **Compare models** puts up to 5 models side by side (table, small charts,
 spend over time). Change `plan.json` when the plan changes.

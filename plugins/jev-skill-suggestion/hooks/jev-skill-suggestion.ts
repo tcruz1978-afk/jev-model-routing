@@ -111,6 +111,8 @@ import {
   modelInvocable,
   readWide,
   costOf,
+  armOf,
+  DEFAULT_ARM_SHARES,
   rerankQuestions,
   requestBody,
   requestHeaders,
@@ -150,7 +152,7 @@ import {
   FOR_CLAUDE,
 } from './policy.ts'
 import { SHARED_DIR, appendLine, decisionEntry, jqLogPath, outcomeEntry } from '../skills/model-router/scripts/jq-log.mjs'
-import type { Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Route, Skill, Wide } from './policy.ts'
+import type { Arm, Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Route, Skill, Wide } from './policy.ts'
 
 /** Prompt origins that are not a task of the person's: nothing to suggest for. */
 const NOT_A_TASK = new Set([
@@ -353,6 +355,27 @@ export const register: Register = (on, options) => {
   // answered by the router's local and free models instead of starting a turn.
   const offloadOn = flag('offload', true)
   const offloadTimeoutMs = number('offloadTimeoutMs', 60000)
+  // The on/off comparison (see `armOf`): the share of sessions with neither
+  // Jev nor the router, and with Jev but no router. 0 and 0 turns it off.
+  const armShares = { off: number('compareOff', DEFAULT_ARM_SHARES.off), noRouter: number('compareNoRouter', DEFAULT_ARM_SHARES.noRouter) }
+  const arms = new Map<string, Arm>()
+  /** This session's group, logged the first time it is asked for. */
+  const armFor = async ($: Parameters<typeof record>[0] & { ui: { log: (text: string) => void } }): Promise<Arm> => {
+    let id = ''
+    try {
+      id = await $.session.id()
+    } catch {
+      id = ''
+    }
+    if (!id) return 'on'
+    const known = arms.get(id)
+    if (known) return known
+    const arm = armOf(id, armShares)
+    arms.set(id, arm)
+    if (arm !== 'on' && logDecisions) $.ui.log(`[jev-skill-suggestion] this session is in the ${arm === 'off' ? '"off"' : '"no router"'} group of the on/off comparison`)
+    await record($, { kind: 'jev.arm', arm, shares: armShares }, logDecisions)
+    return arm
+  }
   const policy: PolicyConfig = {
     shortlist: Math.max(1, Math.round(number('shortlist', DEFAULT_POLICY.shortlist))),
     gateThreshold: number('gateThreshold', DEFAULT_POLICY.gateThreshold),
@@ -428,6 +451,9 @@ export const register: Register = (on, options) => {
       }
     }
 
+    // The "off" group of the on/off comparison: the listing stays as Claude Code sends it.
+    if ((await armFor($)) === 'off') return next(e)
+
     const skills = parseListing(e.text)
     for (const skill of skills) listed.add(skill.name)
 
@@ -469,6 +495,9 @@ export const register: Register = (on, options) => {
       }
     }
     suggested = null
+    // The "off" group of the on/off comparison: no Jev, no router, the prompt as typed.
+    const arm = await armFor($)
+    if (arm === 'off') return next(e)
 
     // The user's answer to the pick they were shown last time, if this prompt
     // is theirs: a typed `/other-skill` overrules it, a correction says nothing
@@ -674,7 +703,7 @@ export const register: Register = (on, options) => {
     let route: Route | null = null
     let decidedBy = 'jev'
     // The router's questions ride on this request only for a prompt the user typed while idle.
-    const routing = offloadOn && !e.turnId
+    const routing = offloadOn && arm === 'on' && !e.turnId
     if (active) {
       const answer = await ask(e.text, wideQuestions(active, skills, routing), 'ranking')
       if (answer) wide = readWide(answer)

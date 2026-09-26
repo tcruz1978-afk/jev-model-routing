@@ -151,7 +151,10 @@ test('the hook logs each decision to JQ, shows the pick, and records the next pr
   // Never the prompt's text, in either log; the decision log carries the jqId.
   expect(readFileSync(jqFile, 'utf8')).not.toContain('vendor')
   const jevLog = readFileSync(join(home, '.claude', 'jev-log', 'jq-test.jsonl'), 'utf8')
-  expect(JSON.parse(jevLog.trim().split('\n')[0] as string).jqId).toBe(decision.id)
+  const logged = jevLog.trim().split('\n').map((line) => JSON.parse(line))
+  // The session's comparison group comes first ("jq-test" is in the "on" group), then the decision.
+  expect(logged[0]).toMatchObject({ kind: 'jev.arm', arm: 'on' })
+  expect(logged.find((r) => r.kind === 'jev.decision').jqId).toBe(decision.id)
   expect(jevLog).not.toContain('vendor')
 
   // A correction: nothing recorded for the shown pick.

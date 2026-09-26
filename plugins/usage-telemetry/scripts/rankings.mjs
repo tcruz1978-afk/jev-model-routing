@@ -379,3 +379,64 @@ export function contribution({ rows, cur, tcur, from, to, rates = {} }) {
   }
   return { jev, router, jq, total }
 }
+
+/** The on/off comparison's groups (jev-skill-suggestion `armOf`). */
+export const ARM_LABEL = { on: 'Jev and the router', 'no-router': 'Jev, no router', off: 'Neither' }
+
+/**
+ * The on/off comparison: every session is in one group (a `jev.arm` record),
+ * so each part is measured against the same work without it.
+ *   jev     "Jev, no router" against "Neither"
+ *   router  "Jev and the router" against "Jev, no router"
+ *   total   "Jev and the router" against "Neither"
+ * A request's cost is everything it cost: Claude at pay-as-you-go prices, the
+ * router's calls, and Jev's decision (as reported). Prompts the router
+ * answered in Claude's place count as requests of the "on" group, with the
+ * router's cost and time; whether they landed isn't known. A side with fewer
+ * than TARGETS.minN requests with an outcome is too few to judge.
+ */
+export function comparison({ rows, cur, tcur }) {
+  const armOf = new Map()
+  for (const r of rows) if (r.k === 'jev.arm' && r.d?.arm && r.s >= 0) armOf.set(r.s, r.d.arm)
+  const decisions = cur.filter((r) => r.k === 'jev.decision')
+  const jevCost = (t) => rkSum(decisions.filter((d) => d.s === t.s && Math.abs(d.t - t.t) <= TARGETS.matchMs), (d) => d.c)
+  const group = (arm) => {
+    const turns = tcur.filter((t) => armOf.get(t.s) === arm)
+    const answered = arm === 'on' ? cur.filter((r) => r.k === 'router.call' && r.d?.offload && armOf.get(r.s) === arm) : []
+    const known = turns.filter((t) => t.land !== null && t.land !== undefined)
+    const costs = [...turns.map((t) => (rkNum(t.c) ? t.c : 0) + (rkNum(t.rc) ? t.rc : 0) + jevCost(t)), ...answered.map((r) => (rkNum(r.c) ? r.c : 0))]
+    const times = [...turns.map((t) => t.dur), ...answered.map((r) => r.d?.ms)]
+    return {
+      arm, label: ARM_LABEL[arm],
+      sessions: new Set([...turns.map((t) => t.s), ...answered.map((r) => r.s)]).size,
+      requests: turns.length + answered.length,
+      byRouter: answered.length,
+      known: known.length,
+      landed: known.filter((t) => t.land).length,
+      landRate: known.length ? known.filter((t) => t.land).length / known.length : null,
+      cost: median(costs),
+      spend: costs.reduce((a, b) => a + b, 0),
+      time: median(times),
+    }
+  }
+  const groups = { on: group('on'), 'no-router': group('no-router'), off: group('off') }
+  const pair = (with_, without) => {
+    const a = groups[with_], b = groups[without]
+    const diff = (x, y) => (rkNum(x) && rkNum(y) ? x - y : null)
+    return {
+      with: a, without: b,
+      landDiff: diff(a.landRate, b.landRate),
+      costDiff: diff(a.cost, b.cost),
+      timeDiff: diff(a.time, b.time),
+      thin: a.known < TARGETS.minN || b.known < TARGETS.minN,
+    }
+  }
+  return {
+    tracked: armOf.size > 0,
+    sessions: armOf.size,
+    groups,
+    jev: pair('no-router', 'off'),
+    router: pair('on', 'no-router'),
+    total: pair('on', 'off'),
+  }
+}

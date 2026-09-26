@@ -678,3 +678,18 @@ test('costOf reads what OpenRouter says a call cost, and nothing else', async ()
   expect(costOf('not json')).toBeNull()
 })
 
+
+// ---------- the on/off comparison ----------
+
+test('armOf puts a session in the same group every time, in the shares asked for', async () => {
+  const { armOf, DEFAULT_ARM_SHARES } = await import('../hooks/policy.ts')
+  expect(armOf('abc')).toBe(armOf('abc'))
+  const ids = Array.from({ length: 4000 }, (_, i) => `session-${i}-${(i * 2654435761) % 1000003}`)
+  const count = (arm: string, shares = DEFAULT_ARM_SHARES) => ids.filter((id) => armOf(id, shares) === arm).length / ids.length
+  expect(Math.abs(count('off') - 0.2)).toBeLessThan(0.03)
+  expect(Math.abs(count('no-router') - 0.2)).toBeLessThan(0.03)
+  expect(Math.abs(count('on') - 0.6)).toBeLessThan(0.03)
+  expect(ids.every((id) => armOf(id, { off: 0, noRouter: 0 }) === 'on')).toBe(true)
+  expect(ids.every((id) => armOf(id, { off: 1, noRouter: 0.5 }) === 'off')).toBe(true)
+  expect(ids.every((id) => armOf(id, { off: Number.NaN, noRouter: -1 }) === 'on')).toBe(true)
+})
