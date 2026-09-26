@@ -139,7 +139,7 @@ test('attribution: model calls go to the skill active in their turn; tools get a
     { k: 'api', t: 4000, s: 0, a: 'main', c: 4 },
     { k: 'api', t: 4500, s: 0, a: 'subagent:Explore', c: 8 }, // inherits the main chat's skill
     { k: 'prompt', t: 5 * MIN, s: 0, a: 'main' },
-    { k: 'jev.decision', t: 5 * MIN + 300, s: 0, sk: 'unlazy', d: { injected: true } },
+    { k: 'jev.decision', t: 5 * MIN + 300, s: 0, sk: 'unlazy', d: { injected: false } }, // a pick counts, shown or not
     { k: 'api', t: 6 * MIN, s: 0, a: 'main', c: 16 },
     { k: 'prompt', t: 10 * MIN, s: 0, a: 'main' },
     { k: 'api', t: 11 * MIN, s: 0, a: 'main', c: 32 }, // no skill

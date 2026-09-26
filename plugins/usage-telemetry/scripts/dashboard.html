@@ -412,7 +412,7 @@ function work(R) {
   const none = skills.find((s) => s.skill === null);
   const calls = R.cur.filter((r) => r.k === 'api').length;
   document.getElementById('work-note').textContent = calls
-    ? `Cost is Claude's work at pay-as-you-go prices. A skill gets the model calls made while it was active (typed as a command, loaded by Claude, or put in by Jev); ${none ? `${n0(none.calls)} of ${plural(calls, 'model call')} ran with no skill active and show as "no skill"` : 'every model call ran with a skill active'}. A connector gets the cost of the Claude replies that asked for it. Time is the typical (middle) request, call or run; for subagents, only runs Claude waited for (a background run's time isn't known). Grey rows: fewer than 10 uses, too few to judge the failure rate.`
+    ? `Cost is Claude's work at pay-as-you-go prices. A skill gets the model calls made while it was active (typed as a command, loaded by Claude, or picked by Jev); ${none ? `${n0(none.calls)} of ${plural(calls, 'model call')} ran with no skill active and show as "no skill"` : 'every model call ran with a skill active'}. A connector gets the cost of the Claude replies that asked for it. Time is the typical (middle) request, call or run; for subagents, only runs Claude waited for (a background run's time isn't known). Grey rows: fewer than 10 uses, too few to judge the failure rate.`
     : 'No Claude work in this period yet.';
   const failCell = (e, n) => (e.failRate === null ? '—' : ofN(e.failed, n));
   const top = (list, n = 8) => list.slice(0, n);

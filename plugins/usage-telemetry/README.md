@@ -59,7 +59,7 @@ bottom:
 3. **Where the work went**: by skill, by connector or plugin, and by
    subagent, each with uses, cost, failures and typical time. A Claude model
    call is charged to the skill active in its turn (typed `/command`, Jev's
-   pick when Jev put its text in the chat, or the last skill Claude loaded);
+   pick, or the last skill Claude loaded);
    calls with none show as "no skill", never dropped. A connector gets its
    share of the Claude reply that asked for it.
 4. **Model × work grid**: which model served which skill (Claude) or task
