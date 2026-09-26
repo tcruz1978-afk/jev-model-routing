@@ -937,7 +937,7 @@ test('callRecord keeps the routing facts and never the prompt text', () => {
 
 // ---- owned providers (already paid for by subscription) ----
 
-const OWNED = ['openai', 'google']
+const OWNED = ['openai', 'google', 'anthropic']
 
 test('ownedFamilies reads routes.json, and ROUTER_OWNED overrides it', () => {
   assert.deepEqual(config.owned.families, OWNED)
@@ -955,7 +955,7 @@ test('paid routes never carry owned models or openrouter/auto, and stay full', (
   }
   const plain = route('x', { category: 'code', prefer: 'cheap', owned: [] })
   const guarded = route('x', { category: 'code', prefer: 'cheap', owned: OWNED })
-  if (plain.models.some((m) => isOwned(m, OWNED) || m === 'openrouter/auto')) assert.match(guarded.reason, /skipped openai, google \(already paid for\)/)
+  if (plain.models.some((m) => isOwned(m, OWNED) || m === 'openrouter/auto')) assert.match(guarded.reason, /skipped openai, google, anthropic \(already paid for\)/)
   // --allow-owned gives the route as written.
   assert.deepEqual(route('x', { category: 'code', prefer: 'cheap', owned: OWNED, allowOwned: true }).models, plain.models)
 })

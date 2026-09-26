@@ -192,7 +192,7 @@ credit).
 | Step | Skill selection | Model selection |
 |---|---|---|
 | 1 | Jev (OpenRouter, or TypeSafe / Vercel AI Gateway if you set their keys) | Jev (same) |
-| 2 | OpenRouter chat model (`qwen/qwen3.8-flash` by default; not OpenAI or Google, which the owner already pays for) | OpenRouter chat model (`qwen3.8-flash` while `openai` is owned, else `gpt-6-luna`; `qwen3.8-flash` with `--open`) |
+| 2 | OpenRouter chat model (`qwen/qwen3.8-flash` by default; not OpenAI, Google or Anthropic, which the owner already pays for) | OpenRouter chat model (`qwen3.8-flash` while `openai` is owned, else `gpt-6-luna`; `qwen3.8-flash` with `--open`) |
 | 3 | Claude Code's built-in classifier | Keyword rules |
 
 ## Troubleshooting
