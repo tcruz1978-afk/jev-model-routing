@@ -55,16 +55,31 @@ export function liveQuery({ days = LIVE.days, after = null, limit = LIVE.pageSiz
  */
 export function rowsFromResult(result) {
   let v = result && typeof result === 'object' && 'payload' in result ? result.payload : result
+  // The whole reply can also arrive as JSON text: {"result": "…"}.
+  if (typeof v === 'string' && v.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(v)
+      if (typeof parsed?.result === 'string') v = parsed
+    } catch {}
+  }
   if (v && typeof v === 'object' && !Array.isArray(v) && typeof v.result === 'string') v = v.result
   if (Array.isArray(v)) return v
   if (typeof v !== 'string') throw new Error('Supabase answered with something other than rows')
-  const tagged = /<untrusted-data-([\w-]+)>\s*([\s\S]*?)\s*<\/untrusted-data-\1>/.exec(v)
-  const body = tagged ? tagged[2] : v.trim()
+  // The connector also names the tag in its warnings around the data, so the
+  // data starts at the first opening tag followed by an array and ends at
+  // the last closing tag.
+  const opened = /<untrusted-data-([\w-]+)>\s*(?=\[)/.exec(v)
+  let body = v.trim()
+  if (opened) {
+    const end = v.lastIndexOf(`</untrusted-data-${opened[1]}>`)
+    if (end > opened.index) body = v.slice(opened.index + opened[0].length, end).trim()
+  }
   let rows
   try {
     rows = JSON.parse(body)
   } catch {
-    throw new Error(`Supabase's answer did not parse as rows: ${body.slice(0, 120)}`)
+    // Never echo the body: it is the owner's data.
+    throw new Error(`Supabase's answer did not parse as rows (${body.length} characters, starting "${body.slice(0, 12).replace(/[^\w\s[\]{}:"'.,-]/g, '')}")`)
   }
   if (!Array.isArray(rows)) throw new Error('Supabase answered with something other than rows')
   return rows

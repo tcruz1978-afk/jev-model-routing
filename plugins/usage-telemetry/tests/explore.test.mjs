@@ -1,6 +1,7 @@
 // The master dashboard's engine: grouping, metrics, filters, the URL hash and CSV.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { DAY, attribute } from '../scripts/checks.mjs'
 import {
   DEFAULT_VIEW, HOUR, accFigures, addTo, bucketStart, bucketsFor, buildIndex, csvCell, decodeView, dimKey, dimLabel, drillFilters, encodeView,
@@ -177,4 +178,27 @@ test('the page: tabs in order, the engine inlined, health cards in plain words',
   const cards = checkCardsHtml(plainChecks(R, { days: 7, end: END }))
   assert.equal((cards.match(/<article class="hcard/g) || []).length, 7)
   assert.deepEqual(bannedIn(visibleText(cards)), [])
+})
+
+test('the log CSV is saved through the downloads capability, and every outcome is said in words', async () => {
+  const { logsCsvName, saveFile } = await import('../scripts/explore.mjs')
+  assert.equal(logsCsvName(Date.parse('2026-09-26T18:53:00Z'), 1858), 'claude-usage-2026-09-26-1858-events.csv')
+  const saved = []
+  const ok = { save: async (req) => { saved.push(req); return { status: 'saved' } } }
+  assert.deepEqual(await saveFile(ok, 'a.csv', 'x,y\r\n'), { text: 'Saved.', hide: false })
+  assert.deepEqual(saved, [{ filename: 'a.csv', data: 'x,y\r\n' }])
+  const failing = (code) => ({ save: async () => { throw { code, message: 'm' } } })
+  assert.deepEqual(await saveFile(failing('declined'), 'a.csv', 'x'), { text: 'Not saved.', hide: false })
+  assert.match((await saveFile(failing('rate_limited'), 'a.csv', 'x')).text, /already waiting/)
+  assert.match((await saveFile(failing('too_large'), 'a.csv', 'x')).text, /Filter the list down/)
+  assert.equal((await saveFile(failing('unavailable'), 'a.csv', 'x')).hide, true)
+  assert.equal((await saveFile(failing('something_new'), 'a.csv', 'x')).hide, true, 'unknown codes read as unavailable')
+  assert.deepEqual(await saveFile(null, 'a.csv', 'x'), { text: "Saving files isn't available here.", hide: true })
+})
+
+test('the page saves the CSV through the viewer, never with its own download link inside Claude', () => {
+  const html = readFileSync(new URL('../scripts/dashboard.html', import.meta.url), 'utf8')
+  assert.ok(html.includes("window.claude.use('downloads')"))
+  assert.ok(html.includes('saveFile(downloads, name, csv)'))
+  assert.ok(html.includes('id="lg-msg"'))
 })

@@ -319,6 +319,7 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
       <div class="lg-bar">
         <input type="search" id="lg-q" placeholder="Search tools, skills, connectors, models…" aria-label="Search names">
         <button class="btn" id="lg-csv">Download CSV</button>
+        <span class="msg" id="lg-msg" role="status"></span>
       </div>
       <p class="note" id="lg-note" style="margin-top:8px"></p>
       <div class="tbox" id="lg-table"></div>
@@ -1106,16 +1107,25 @@ $('view-copy').addEventListener('click', async () => {
 });
 let qTimer = null;
 $('lg-q').addEventListener('input', (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => setView({ q: e.target.value.trim(), pg: 0 }), 250); });
-$('lg-csv').addEventListener('click', () => {
+// The viewer blocks a page's own downloads: files go through the `downloads` capability.
+const downloadsReady = window.claude?.use ? window.claude.use('downloads') : Promise.resolve(undefined);
+downloadsReady.then((d) => { if (d === null) $('lg-csv').hidden = true; }, () => {});
+$('lg-csv').addEventListener('click', async () => {
   if (!LOGS) return;
-  try {
-    const blob = new Blob([logsCsv(IX, LOGS.idx)], { type: 'text/csv;charset=utf-8' });
+  const name = logsCsvName(END, LOGS.idx.length), csv = logsCsv(IX, LOGS.idx);
+  const downloads = await downloadsReady.catch(() => null);
+  if (downloads === undefined) {
+    // Not inside Claude (a saved copy of the page): an ordinary browser download works.
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `claude-usage-${new Date(END).toISOString().slice(0, 10)}-${n0(LOGS.idx.length).replace(/,/g, '')}-events.csv`;
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = name;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  } catch {}
+    return;
+  }
+  const out = await saveFile(downloads, name, csv);
+  $('lg-msg').textContent = out.text;
+  if (out.hide) $('lg-csv').hidden = true;
 });
 $('lg-table').addEventListener('click', (e) => {
   const tr = e.target.closest('tr.lrow'); if (!tr) return;

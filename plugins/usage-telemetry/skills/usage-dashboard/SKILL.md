@@ -58,9 +58,11 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
    "Claude Usage Monitor"; read it first, as the tool requires) so the link
    stays the same. Someone else's session publishes a new one instead.
    Replace the page only; the design, CSS and markup stay as they are.
-   Pass `capabilities: {"mcp": {"servers": [{"server": "Supabase", "tools": ["execute_sql"]}]}}`
-   so the page can read live data (see below); a redeploy that omits
-   `capabilities` keeps what the page already has.
+   Pass `capabilities: {"mcp": {"servers": [{"server": "Supabase", "tools": ["execute_sql"]}]}, "downloads": true}`
+   so the page can read live data (see below) and save the Logs CSV (the
+   viewer blocks a page's own downloads; the page asks the viewer to save it
+   instead). A redeploy that omits `capabilities` keeps what the page
+   already has; one that passes it must list both.
 
 ## Live data
 
