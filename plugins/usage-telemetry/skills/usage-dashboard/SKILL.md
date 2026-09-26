@@ -58,7 +58,27 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
    "Claude Usage Monitor"; read it first, as the tool requires) so the link
    stays the same. Someone else's session publishes a new one instead.
    Replace the page only; the design, CSS and markup stay as they are.
-   The first publish after this redesign replaces the old single-page layout.
+   Pass `capabilities: {"mcp": {"servers": [{"server": "Supabase", "tools": ["execute_sql"]}]}}`
+   so the page can read live data (see below); a redeploy that omits
+   `capabilities` keeps what the page already has.
+
+## Live data
+
+Opened inside Claude, the page reads `claude_usage.events` itself through
+the viewer's Supabase connector (`scripts/live.mjs`, inlined like
+`checks.mjs`): the last 180 days, newest first in pages of 1000, only the
+columns in `LIVE_COLUMNS` and `data` only for `jev.decision`, `jev.miss`,
+`router.call`, `openrouter.key` and `tool`. It turns the rows into the same
+compact rows the build makes and runs the same arithmetic on them. A line
+under the header says "Live: read from Supabase …" with the newest event's
+time, or why it couldn't (Supabase not connected, needs reconnecting,
+turned off for this page, the query refused, not opened inside Claude) and
+that it is showing the saved copy "as of" the build time.
+
+The build still matters: its DATA is that saved copy (inlined as
+`SNAPSHOT`), the fallback every viewer without the connector sees, and what
+the guards and snapshots compare. The first viewer to open it is asked once
+to allow Supabase for the page.
 
 ## What the page computes
 

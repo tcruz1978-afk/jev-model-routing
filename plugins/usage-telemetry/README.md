@@ -45,12 +45,13 @@ things per environment:
 
 ## The dashboard
 
-One static page (no backend: every row is inlined and filtered in the
-browser) that works like OpenRouter's Activity page. Tabs across the top,
-and in the header on every tab: the period (24h, 7d, 30d, 90d, or custom
-from–to UTC days), the machines (all, cloud, your PC) and a health badge
-("2 need attention") that opens Health. The URL hash holds the tab and
-every choice, so any view can be bookmarked or shared.
+Works like OpenRouter's Activity page. Opened inside Claude, the page reads
+the events live from Supabase through your Supabase connector
+(`scripts/live.mjs`) each time it opens, and falls back to the copy saved at
+the last build, with its "as of" time, when it can't. Filtering and grouping
+run in the browser. Tabs across the top, and in the header on every tab: the
+period (24h, 7d, 30d, 90d, or custom from–to UTC days), the machines (all,
+cloud, your PC) and a health badge ("2 need attention") that opens Health.
 
 1. **Overview**: metric cards, each with a sparkline and its change on the
    previous period ("not collected yet" when that period predates
