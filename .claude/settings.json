@@ -1,0 +1,16 @@
+{
+  "extraKnownMarketplaces": {
+    "jev-model-routing": {
+      "source": {
+        "source": "github",
+        "repo": "tcruz1978-afk/jev-model-routing"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "jev-skill-suggestion@jev-model-routing": true
+  },
+  "env": {
+    "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
+  }
+}
