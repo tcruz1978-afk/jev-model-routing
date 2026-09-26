@@ -1148,6 +1148,8 @@ export interface DecisionRecord {
   wideMs: number | null
   rerankMs: number | null
   injected: boolean
+  /** The judgement-quotient record this decision was logged under, or null when none was (see `jqConfidence`). */
+  jqId: string | null
 }
 
 /** A skill the model loaded, and whether it was the one suggested. */
@@ -1187,4 +1189,124 @@ export function appendRecord(existing: string | null, record: LogRecord): string
       }
     })
   return [...kept, JSON.stringify(record)].join('\n') + '\n'
+}
+
+// ---------------------------------------------------------------------------
+// Judgement quotient (JQ): each decision is logged with the probability it
+// rested on, and what the user did about a pick they saw is its outcome.
+// Record format: skills/model-router/scripts/jq-log.mjs (tc-ventures' jq.mjs).
+
+/** What a logged decision's confidence rests on. */
+export type JqBasis = 'fits' | 'rank' | 'gate'
+
+/**
+ * The most honest probability for the decision `decide` made, or null when
+ * the decision did not rest on one (and so nothing is logged: a figure is
+ * never filled in). Walks `decide`'s own path:
+ *
+ * - a pick the rerank confirmed: the winner's own `fits` noul, P(it does the
+ *   specific thing asked);
+ * - a pick with no rerank (`rerank: false`): its probability in the ranking;
+ * - "none" because the gate stayed closed: 1 − gate (the gate is the mean
+ *   P(the request needs a skill));
+ * - "none" because nothing fits (the best `fits` under the threshold, or the
+ *   winner's own under it): 1 − the best `fits` of the shortlist, the
+ *   probability that no candidate does the thing;
+ * - anything else (no answer, a failed rerank, a winner off the shortlist,
+ *   the built-in classifier's bare label): null.
+ */
+export function jqConfidence(
+  wide: Wide | null,
+  rerank: Rerank | null,
+  skills: readonly Skill[],
+  config: PolicyConfig,
+  rerankAttempted: boolean,
+  decision: Suggestion,
+): { confidence: number; basis: JqBasis } | null {
+  const probability = (value: number | null | undefined, basis: JqBasis) =>
+    typeof value === 'number' && value >= 0 && value <= 1 ? { confidence: value, basis } : null
+  if (!wide) return null
+  if (!passesGate(wide, config)) return decision.name === null ? probability(wide.gate === null ? null : 1 - wide.gate, 'gate') : null
+  const shortlist = shortlistOf(wide, skills, config.shortlist)
+  if (shortlist.length === 0) return null
+  if (!rerank) {
+    if (rerankAttempted || decision.name === null) return null
+    return probability(wide.ranked.find((entry) => entry.name === decision.name)?.probability, 'rank')
+  }
+  const values = Object.values(rerank.fits)
+  const best = values.length > 0 ? Math.max(...values) : null
+  if (decision.name === null) {
+    const onShortlist = shortlist.some((skill) => skill.name === rerank.winner)
+    const restedOnFits = (best !== null && best < config.fitsThreshold) || (onShortlist && (rerank.fits[rerank.winner] ?? 1) < config.fitsThreshold)
+    return restedOnFits && best !== null ? probability(1 - best, 'fits') : null
+  }
+  return decision.name === rerank.winner ? probability(rerank.fits[rerank.winner], 'fits') : null
+}
+
+/** The one line Claude starts its reply with, so the user sees Jev's pick. */
+export function jevLine(skill: string, confidence: number): string {
+  return `Jev: ${skill} (${confidence.toFixed(2)})`
+}
+
+/**
+ * The instruction added inside the <skill_relevance> block (after the
+ * "Relevant to the current request" line, which the usage dashboard reads)
+ * so the pick is on screen, in the reply, and not only on the status line.
+ */
+export function showPickInstruction(line: string): string {
+  return `Start your reply with this one line, exactly as written, so the user can see which skill Jev picked: ${line}`
+}
+
+/** Adds the show-the-pick instruction to a block, just before its closing tag. */
+export function withJevLine(block: string, line: string | null): string {
+  if (!line) return block
+  const close = '</skill_relevance>'
+  const at = block.lastIndexOf(close)
+  return at === -1 ? `${block}\n${showPickInstruction(line)}` : `${block.slice(0, at)}${showPickInstruction(line)}\n${block.slice(at)}`
+}
+
+/**
+ * Whether a message reads as pushback or a correction. The same test as the
+ * usage dashboard's (plugins/usage-telemetry/scripts/lib.mjs).
+ */
+export function looksLikeCorrection(text: string): boolean {
+  const t = String(text ?? '').trim()
+  if (!t) return false
+  return (
+    /^(no\b|nope|wrong|not (that|what)|that'?s (not|wrong)|stop\b|why (the fuck|tf|is|isn'?t|did|didn'?t|are)|wtf|what the)/i.test(t) ||
+    /\b(still (not|broken|failing|doesn'?t|isn'?t|wrong)|doesn'?t work|isn'?t working|not working|didn'?t work|you (didn'?t|missed|forgot|ignored)|i (already|just) (said|told)|that is what i said|how is that not clear|fuck|wtf|\?{3,})/i.test(t)
+  )
+}
+
+/** A skill's name without its plugin prefix (`plugin:skill` → `skill`). */
+const bare = (name: string) => name.slice(name.lastIndexOf(':') + 1)
+
+/**
+ * What the user's next prompt says about a pick they were shown (the
+ * `Jev: …` line), by the owner's rule (2026-09-26):
+ *
+ * - they typed `/X`, X a skill other than the pick → overruled, X was right;
+ * - the message reads as pushback or a correction → nothing: the complaint
+ *   may be about the work, not the skill;
+ * - a typed `/name` that is not a skill (`/clear`, `/model`) → nothing;
+ * - otherwise → kept: they saw the pick and let it stand.
+ *
+ * Only ever called for a pick that was shown; "none" is never shown, so it
+ * never gets an outcome here.
+ */
+export function jqOutcomeFor(
+  pick: string,
+  nextPrompt: string,
+  isSkill: (name: string) => boolean,
+): { outcome: 'kept' } | { outcome: 'overruled'; answer: string } | null {
+  const text = nextPrompt.trim()
+  if (!text) return null
+  const typed = /^\/([\w:.-]+)(?:\s|$)/.exec(text)
+  if (typed) {
+    const name = typed[1] as string
+    if (!isSkill(name)) return null
+    return name === pick || bare(name) === bare(pick) ? { outcome: 'kept' } : { outcome: 'overruled', answer: name }
+  }
+  if (looksLikeCorrection(text)) return null
+  return { outcome: 'kept' }
 }

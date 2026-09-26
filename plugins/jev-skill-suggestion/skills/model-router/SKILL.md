@@ -33,12 +33,25 @@ node scripts/router.mjs "<prompt>" --open             # open-weight models only
 node scripts/router.mjs "<prompt>" --model <id>       # a specific OpenRouter model
 node scripts/router.mjs "<prompt>" --dry-run          # show the route, call nothing
 node scripts/router.mjs "<prompt>" --json             # machine-readable result
+node scripts/router.mjs "<prompt>" --team <name>      # route for a team's JQ level
 node scripts/router.mjs check                         # are routes.json's models still live?
 node scripts/router.mjs models <filter>               # browse OpenRouter's catalog
 ```
 
 Other flags: `--category <kind>` fixes the task kind, `--system "..."` adds a
 system prompt, `--no-jev` uses the keyword rules only.
+
+## Judgement quotient (JQ)
+
+- `--jq <1-5>` or `--team <name>` sets how often the work must be right: the
+  tier never drops below the level's floor (1–2 any, 3 balanced, 4–5 quality)
+  and Jev's pick counts only when it is at least that sure. Teams come from
+  the owner's private teams file (`JQ_TEAMS_FILE`, else `./tools/jq/teams.json`,
+  else `~/.jq/teams.json`); with neither flag, its `default` level applies.
+- Jev's category and tier picks are logged for scoring; the output shows
+  their `jqId`. Pass it on so the user can record whether the pick held
+  (`node tools/jq/jq.mjs outcome <jqId> kept|overruled`, in tc-ventures).
+- Details: `scripts/README.md`.
 
 ## Doing it well
 

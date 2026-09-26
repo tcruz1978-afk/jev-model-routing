@@ -177,6 +177,23 @@ What stays counted after `setup`: skills shipped by plugins (`/skills` marks the
 
 If `/skills` still shows one of your own skills as `on` after `setup` and a restart, its directory holds a SKILL.md whose frontmatter `name:` differs from the directory name; run `setup` again — the mod maps such names to the directory the engine goes by — or delete the skill if it is a stray copy.
 
+## Judgement quotient (JQ)
+
+Every decision is also scored, so over time you can see how far to trust Jev's picks. The mod appends one line per decision to the JQ log, in the format tc-ventures' `tools/jq/jq.mjs` reads (the record code is shared with the model router: `skills/model-router/scripts/jq-log.mjs`):
+
+- **Where:** `JQ_LOG_FILE` if set, else `/mnt/project-files/judgement-quotient/decisions.jsonl` when that shared folder exists, else `~/.jq/decisions.jsonl`. `JQ_LOG=off` turns it off.
+- **What:** tool `jev-skill-suggestion`, question `skill`, the answer (the skill, or `none`), the confidence, `decidedBy`, and `basis` (what the confidence rests on). Never the prompt's text. The decision log in `~/.claude/jev-log/` carries the same `jqId`, so the two join.
+- **Which confidence**, the most honest probability the decision actually rested on:
+  - a pick the rerank confirmed: the winner's own `fits` (the probability it does the specific thing asked);
+  - a pick with `rerank: false`: its probability in the ranking;
+  - `none` because the gate stayed closed: 1 − the gate (the gate is the probability the request needs a skill);
+  - `none` because nothing fit: 1 − the best `fits` on the shortlist (the probability that no candidate does the thing).
+  - Anything else (no answer, a failed rerank, the backup model's or built-in classifier's bare label, a skill left out for `disable-model-invocation`) rests on no probability, so nothing is logged: a figure is never filled in.
+- **Seen, then scored.** When the mod picks a skill with a stated confidence, the `<skill_relevance>` block asks Claude to start its reply with one line, `Jev: <skill> (<confidence>)`, so the pick is in front of you and not only on the status line. Your next prompt then records the outcome (owner's rule, 2026-09-26): you type `/other-skill` → `overruled`, with that skill as the right answer; your message reads as pushback or a correction → nothing (the complaint may be about the work, not the skill); anything else → `kept` (you saw the call and let it stand). A typed built-in command (`/clear`) records nothing. `none` is never shown, so it never gets an outcome.
+- **Report:** in tc-ventures, `node tools/jq/jq.mjs report` (same `JQ_LOG_FILE`, if you moved the log).
+
+Open: `$.fs` has no append, so the mod reads and rewrites the whole log; a log over 4 MiB can't be read by a mod, and then nothing more is logged (the file is never overwritten). A router call writing at the same instant can lose one line.
+
 ## Privacy
 
 With a key set, the prompt text (and, from the second prompt on, the previous one, cut to 600 characters) and every candidate skill's name and one-line description leave the machine on the first request, and the first `excerptChars` of each shortlisted skill's SKILL.md on the second, to whichever backend the key belongs to. Nothing else. With no key set, nothing leaves the machine.
@@ -247,7 +264,8 @@ Pairs with [jev-model-router](../jev-model-router/README.md), which asks the sam
 ## Tests
 
 ```sh
-bun test cli-tool/components/mods/productivity/jev-skill-suggestion/tests
+bun test                                            # in this folder: the hook's policy, JQ, and the router
+node --test skills/model-router/scripts/*.test.mjs  # the model router and the JQ record format
 ```
 
 **Early access.** Mods need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`; the `$` API may change between releases. This mod needs **Claude Code 2.1.278 or newer**: the `prompt.attachment` event it hooks to withhold the listing first shipped there. On an older release the module loads but the event never fires, so the listing stays and only the suggestion is added. Typed against Anthropic's declarations: https://github.com/anthropics/claude-code/tree/main/mods
