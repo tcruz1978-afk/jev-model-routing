@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, route, plan, ownedFamilies, isOwned, askDecider, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE, cascadeSteps, completeCascade, agentsOnRoute } from './router.mjs'
+import { classify, route, plan, ownedFamilies, isOwned, askDecider, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE, cascadeSteps, completeCascade, agentsOnRoute, sameFamily } from './router.mjs'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -1090,4 +1090,61 @@ test('offload: the tier hint is held to the JQ bar, and Jev is not asked again',
   const ok = await completeCascade('x', { ...CASCADE, offload: true, jev: false, category: 'code', tierHint: 'cheap', fetchImpl, runImpl: noAgents })
   assert.equal(ok.via, 'free')
   assert.ok(!calls.some((c) => c.url.endsWith('/systemone')))
+})
+
+// ---------- the failures the dashboard showed (2026-09-26) ----------
+
+test('a 402 about in-flight requests is retried once, not read as out of credit', async () => {
+  const { chats, fetchImpl } = scripted([[402, { error: { code: 402, message: 'This request would exceed your available credits given your current in-flight requests. Retry shortly.' } }], answer('moonshotai/kimi-k3')])
+  const result = await complete('review this', { env: OR, fetchImpl, jev: false, model: 'moonshotai/kimi-k3', strict: true, retryDelayMs: 0 })
+  assert.equal(result.model, 'moonshotai/kimi-k3')
+  assert.equal(result.outOfCredit, false)
+  assert.equal(chats.length, 2)
+})
+
+test('a named free model that is rate-limited falls back to its paid version, same family', async () => {
+  const limited = [429, { error: { code: 429, message: 'Provider returned error' } }]
+  const { chats, fetchImpl } = scripted([limited, limited, answer('qwen/qwen3.8-27b')])
+  const result = await complete('review this', { env: OR, fetchImpl, jev: false, model: 'qwen/qwen3.8-27b:free', strict: true, retryDelayMs: 0 })
+  assert.equal(result.model, 'qwen/qwen3.8-27b')
+  assert.equal(result.fallbackFrom, 'qwen/qwen3.8-27b:free')
+  assert.match(result.reason, /qwen\/qwen3\.8-27b:free answered 429/)
+  assert.deepEqual(chats.map((c) => c.model), ['qwen/qwen3.8-27b:free', 'qwen/qwen3.8-27b:free', 'qwen/qwen3.8-27b'])
+  assert.match(result.reason, /tried qwen\/qwen3\.8-27b$/)
+})
+
+test('a free model no longer free (404) or restricted (403) also falls back to its paid version', async () => {
+  for (const status of [403, 404]) {
+    const { chats, fetchImpl } = scripted([[status, { error: { code: status, message: 'unavailable for free' } }], answer('z-ai/glm-5.2')])
+    const result = await complete('x', { env: OR, fetchImpl, jev: false, model: 'z-ai/glm-5.2:free', strict: true, retryDelayMs: 0 })
+    assert.equal(result.model, 'z-ai/glm-5.2')
+    assert.equal(chats.length, 2)
+  }
+})
+
+test('--free keeps a named free model free: no paid fallback', async () => {
+  const limited = [429, { error: { code: 429, message: 'Provider returned error' } }]
+  const { chats, fetchImpl } = scripted([limited, limited])
+  await assert.rejects(complete('x', { env: OR, fetchImpl, jev: false, model: 'qwen/qwen3.8-27b:free', free: true, retryDelayMs: 0 }), /429/)
+  assert.ok(chats.every((c) => c.model.endsWith(':free')))
+})
+
+test('the free lists hold no retired or restricted model', () => {
+  for (const ids of Object.values(config.free)) for (const id of ids) {
+    assert.ok(config.models[id], id)
+    assert.ok(!['z-ai/glm-5.2:free', 'thinkingmachines/inkling:free'].includes(id), id)
+  }
+})
+
+test("a named free model of an owned family is allowed, and falls back to the family's other free model, never its paid one", async () => {
+  const owned = ['openai', 'google', 'anthropic']
+  assert.deepEqual(route('x', { model: 'google/gemma-4-31b-it:free', owned }).models, ['google/gemma-4-31b-it:free'])
+  assert.throws(() => route('x', { model: 'google/gemma-4-31b-it', owned }), /already pay for/)
+  assert.deepEqual(sameFamily('google/gemma-4-31b-it:free', { owned }), ['google/gemma-4-26b-a4b-it:free'])
+  assert.deepEqual(sameFamily('google/gemma-4-31b-it:free', { owned: [] }), ['google/gemma-4-26b-a4b-it:free', 'google/gemma-4-31b-it'])
+  const limited = [429, { error: { code: 429, message: 'Provider returned error' } }]
+  const { chats, fetchImpl } = scripted([limited, limited, answer('google/gemma-4-26b-a4b-it:free')])
+  const result = await complete('x', { env: OR, owned, fetchImpl, jev: false, model: 'google/gemma-4-31b-it:free', strict: true, retryDelayMs: 0 })
+  assert.equal(result.model, 'google/gemma-4-26b-a4b-it:free')
+  assert.ok(chats.every((c) => c.model.endsWith(':free')), 'nothing paid')
 })

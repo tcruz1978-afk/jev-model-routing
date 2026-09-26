@@ -40,6 +40,13 @@ const RETRYABLE = new Set([429, 502, 503, 504])
 const DAILY_FREE_LIMIT = /free-models-per-day/i
 const DAILY_FREE_HINT = 'free requests are used up for today; the limit resets at 00:00 UTC'
 const RETRY_DELAY_MS = 2000
+// A 402 that names in-flight requests: the balance is fine once the calls already
+// running finish, so it is retried like a 429 instead of read as out of credit.
+const IN_FLIGHT = /in-flight/i
+// A named `:free` model that is rate-limited (429), no longer free (404) or
+// restricted to agent tools (403) falls back to the same model's paid slug, so
+// the answer comes from the same family (the review gate's reviewers stay theirs).
+const FREE_REFUSED = new Set([403, 404, 429])
 // How many routes a sweep runs at once; more trips providers' rate limits.
 export const SWEEP_CONCURRENCY = 4
 // How long a local model gets to answer before the router moves on to the next
@@ -209,7 +216,8 @@ export function route(prompt, { model, prefer = 'balanced', open = false, free =
   const picked = category ?? classify(prompt)
   if (model) {
     // A router that could pick an owned provider counts as owned too.
-    if (!allowOwned && !local && owned.length && (isOwned(model, owned) || model === AUTO)) {
+    // Free models cost nothing, so owning the family doesn't matter (routes.json `owned`).
+    if (!allowOwned && !local && owned.length && ((isOwned(model, owned) && !model.endsWith(':free')) || model === AUTO)) {
       throw new Error(`${model} ${model === AUTO ? 'can pick' : 'is'} a model you already pay for by subscription (owned: ${owned.join(', ')}); name another model, or pass --allow-owned to pay OpenRouter anyway`)
     }
     return { category: picked, models: [model], reason: 'model named explicitly' }
@@ -524,6 +532,19 @@ export function fellBack(requested, served) {
   return served !== requested && !served.startsWith(`${requested}-`)
 }
 
+/**
+ * Stand-ins for a named free model that was refused, from its own family: the
+ * family's other free models in routes.json, then the model's paid slug unless
+ * the family is owned (and --allow-owned isn't given). At most three, as
+ * OpenRouter's `models` takes.
+ */
+export function sameFamily(id, { allowOwned = false, owned = ownedFamilies() } = {}) {
+  const family = String(id).split('/')[0]
+  const free = Object.keys(config.models).filter((m) => m !== id && m.endsWith(':free') && m.split('/')[0] === family)
+  const paid = id.slice(0, -':free'.length)
+  return [...free, ...(allowOwned || !isOwned(paid, owned) ? [paid] : [])].slice(0, MAX_MODELS)
+}
+
 /** Routes and sends one prompt; returns the answer and the model that served it. */
 export async function complete(prompt, options = {}) {
   const { env = process.env, fetchImpl = fetch, maxTokens = options.local ? LOCAL_MAX_TOKENS : DEFAULT_MAX_TOKENS, retryDelayMs = RETRY_DELAY_MS } = options
@@ -555,7 +576,8 @@ export async function complete(prompt, options = {}) {
       // OpenRouter can answer 200 and still carry an upstream error in the body (it has already sent headers).
       const status = body.error?.code ?? response.status
       const dailyLimit = status === 429 && DAILY_FREE_LIMIT.test(body.error?.message ?? '')
-      if (attempt === 0 && RETRYABLE.has(status) && !dailyLimit) {
+      const inFlight = status === 402 && IN_FLIGHT.test(body.error?.message ?? '')
+      if (attempt === 0 && (RETRYABLE.has(status) || inFlight) && !dailyLimit) {
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
         continue
       }
@@ -573,6 +595,17 @@ export async function complete(prompt, options = {}) {
     recordOutcomes(outcomes.filter(Boolean), { statsFile: options.statsFile })
   }
   let { response, body, status, retried } = await send(decision.models)
+  // A named free model refused: the same family instead, so the answer keeps its
+  // family (the review gate's reviewers stay theirs). First the family's other
+  // free models, then the same model paid (it costs cents); never the paid model
+  // of an owned family, which is the subscription's (unless --allow-owned).
+  let freeRefused = null
+  const alternates = !options.free && options.model?.endsWith(':free') && FREE_REFUSED.has(status) ? sameFamily(options.model, { allowOwned: options.allowOwned, owned: options.owned ?? ownedFamilies(env) }) : []
+  if (alternates.length) {
+    freeRefused = `${options.model} answered ${status}`
+    decision = { ...decision, models: alternates, reason: `${decision.reason} · ${freeRefused}, tried ${alternates.join(', ')}` }
+    ;({ response, body, status, retried } = await send(decision.models))
+  }
   if (status === 402) credit = await creditCheck()
   // Out of credit: the same category on free models, so work never stalls on
   // credit. A named model falls back too, and says so, unless `strict` asks
@@ -601,7 +634,7 @@ export async function complete(prompt, options = {}) {
   return {
     ...decision,
     model: body.model,
-    fallbackFrom,
+    fallbackFrom: freeRefused ? options.model : fallbackFrom,
     outOfCredit,
     // 'account' (no credit left), 'key' (its spending limit is used up), or null.
     creditShort: credit?.short ?? null,
