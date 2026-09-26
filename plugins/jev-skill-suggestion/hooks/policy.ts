@@ -462,12 +462,43 @@ export function rerankQuestions(
     },
   }
   for (const candidate of candidates) {
-    questions[`fits::${candidate.name}`] = yesNo(
-      provider,
-      `Does the skill '${candidate.name}' do the specific thing the user's request asks for? It is described as: ${candidate.description || candidate.detail}`,
-    )
+    questions[`fits::${candidate.name}`] = yesNo(provider, fitsQuestion(candidate))
   }
   return questions
+}
+
+/**
+ * The rerank's per-candidate `noul`. It names the state's fields in
+ * backticks, the way TypeSafe's docs have questions refer to a structured
+ * state, and says outright that a vague go-ahead, thanks or complaint is a
+ * no. The cookbook's shorter wording ("does this skill do the specific thing
+ * the request asks for?") scored such replies 0.61–0.70 for whichever skill
+ * ranked first ("yes merge all three when green" → pdf, "yes finish the
+ * dashboard" → unlazy); this one scores them 0.51 or less while right picks
+ * stay at 0.63 or more (scripts/jev-routing in tc-ventures, 210 runs).
+ */
+export function fitsQuestion(candidate: Skill & { detail?: string }): string {
+  return (
+    `Is \`request\` clearly asking for the specific kind of work the skill '${candidate.name}' does, so that its instructions are needed to carry it out? ` +
+    'Read `request` against `recent_context` only when it is a short follow-up. ' +
+    'Answer no when `request` is too vague to tell what task it wants, is only a go-ahead, thanks or complaint, or wants something this skill does not do. ' +
+    `The skill is described as: ${candidate.description || candidate.detail || `a skill named ${candidate.name}`}`
+  )
+}
+
+/**
+ * What Jev reads as `recent_context`: the previous prompt, cut to a length
+ * that keeps the request small, and the skill it was given. A follow-up like
+ * "run it on DeepDiagram too" names no skill on its own; with this, it is
+ * read against the request it continues. Empty when there was no previous
+ * prompt.
+ */
+export function recentContextOf(previousPrompt: string, previousSkill: string | null, maxChars = 600): string {
+  const prompt = previousPrompt.trim()
+  if (!prompt) return ''
+  const cut = prompt.length > maxChars ? `${prompt.slice(0, maxChars)}…` : prompt
+  const skill = previousSkill ? `the skill /${previousSkill} was loaded for it` : 'no skill was loaded for it'
+  return `Previous request: ${cut}\n(${skill})`
 }
 
 /** A request body. The Gateway carries the model in a header instead. */
@@ -476,8 +507,11 @@ export function requestBody(
   prompt: string,
   questions: Record<string, unknown>,
   model: string,
+  /** The previous prompt and the skill it got, so a follow-up ("do the same
+   * for X") can be read against what it refers to. */
+  recentContext = '',
 ): string {
-  const state = { request: prompt, recent_context: '' }
+  const state = { request: prompt, recent_context: recentContext }
   const body = provider === 'typesafe' ? { model, state, questions } : { state, questions }
   return JSON.stringify(body)
 }
@@ -586,7 +620,7 @@ export function builtinWide(label: string | undefined): Wide | null {
  * choose from, since `$.model.classify` takes bare labels and the descriptions
  * are the whole point.
  */
-export function classifyText(prompt: string, skills: readonly Skill[]): string {
+export function classifyText(prompt: string, skills: readonly Skill[], recentContext = ''): string {
   return [
     'Which skill, going by its description, should be loaded before working on the prompt below? Answer "none" unless the prompt is clearly the kind of task a description names.',
     '',
@@ -594,6 +628,7 @@ export function classifyText(prompt: string, skills: readonly Skill[]): string {
     ...skills.map(line),
     `- ${NONE}: no listed skill is about this prompt`,
     '',
+    ...(recentContext ? ['Earlier in the conversation (a short follow-up usually continues it):', recentContext, ''] : []),
     'Prompt:',
     prompt,
   ].join('\n')
@@ -612,7 +647,7 @@ export function fallbackEndpoint(baseUrl: string): string {
 }
 
 /** The backup's request body. */
-export function fallbackBody(prompt: string, skills: readonly Skill[], model: string): string {
+export function fallbackBody(prompt: string, skills: readonly Skill[], model: string, recentContext = ''): string {
   return JSON.stringify({
     model,
     temperature: 0,
@@ -623,7 +658,7 @@ export function fallbackBody(prompt: string, skills: readonly Skill[], model: st
         role: 'system',
         content: `You pick which skill an AI assistant should load. Reply with JSON only: {"skill": "<one skill name from the list, or ${NONE}>"}`,
       },
-      { role: 'user', content: classifyText(prompt, skills) },
+      { role: 'user', content: classifyText(prompt, skills, recentContext) },
     ],
   })
 }
@@ -656,6 +691,23 @@ export function readFallback(responseText: string, skills: readonly Skill[]): st
   return skills.some((skill) => skill.name === name) ? name : undefined
 }
 
+/**
+ * The defaults, set from tc-ventures' routing cases (scripts/jev-routing),
+ * not the cookbook's 0.3/0.3:
+ *
+ * - `fitsThreshold` 0.55: over 210 runs of the cases with `fitsQuestion`'s
+ *   wording, right picks scored 0.63 or more (0.68 on the cases that require
+ *   them) and wrong ones 0.51 or less; 0.50 let "we need to fix and improve
+ *   that" through to skill-creator, 0.60 would sit 0.03 under right picks.
+ * - `decisiveRank` 0.9: requests that name their deliverable ("design the
+ *   approval workflow as a flowchart", "have Gemini answer this") ranked the
+ *   right skill at 1.00 yet failed the gate (0.08–0.23), because a flowchart
+ *   or an answer *could* be written in prose. No wrong pick ranked that high
+ *   with the gate closed, and `fits` still rejects a decisive but wrong one
+ *   ("that is what i said to do already" → session-start-hook 0.99, fits 0.16).
+ */
+export const DEFAULT_POLICY = { shortlist: 3, gateThreshold: 0.3, fitsThreshold: 0.55, decisiveRank: 0.9 } as const
+
 export interface PolicyConfig {
   /** How many of the ranking the second request re-reads. */
   shortlist: number
@@ -663,6 +715,11 @@ export interface PolicyConfig {
   gateThreshold: number
   /** The best `fits` under which the whole shortlist is dropped. */
   fitsThreshold: number
+  /**
+   * A ranking whose top probability reaches this opens the gate on its own:
+   * the rerank's `fits` still has the last word. Above 1 turns it off.
+   */
+  decisiveRank: number
 }
 
 /** The shortlist the second request reads: the top of the ranking, by name. */
@@ -677,9 +734,23 @@ export function shortlistOf(wide: Wide, skills: readonly Skill[], count: number)
   return picked
 }
 
-/** Whether the first request's answer is worth a second look at all. */
+/** The ranking's top probability, or null when the backend gave none. */
+export function topProbability(wide: Wide): number | null {
+  return wide.ranked[0]?.probability ?? null
+}
+
+/** Whether the ranking alone is sure enough to open the gate. */
+export function decisive(wide: Wide, config: PolicyConfig): boolean {
+  const top = topProbability(wide)
+  return top !== null && top >= config.decisiveRank
+}
+
+/**
+ * Whether the first request's answer is worth a second look at all: the
+ * gate says the request wants a skill, or the ranking is decisive about which.
+ */
 export function passesGate(wide: Wide, config: PolicyConfig): boolean {
-  return wide.gate === null || wide.gate >= config.gateThreshold
+  return wide.gate === null || wide.gate >= config.gateThreshold || decisive(wide, config)
 }
 
 export interface Suggestion {
@@ -719,17 +790,27 @@ export function decide(
 
   if (!rerank && rerankAttempted) return { name: null, reason: 'rerank gave no answer; no suggestion' }
 
+  // A closed gate opened by a decisive ranking is said, so the log shows why.
+  const opened =
+    wide.gate !== null && wide.gate < config.gateThreshold
+      ? ` (gate ${wide.gate.toFixed(2)}, opened by a decisive ranking ${(topProbability(wide) as number).toFixed(2)})`
+      : ''
   if (rerank) {
     const values = Object.values(rerank.fits)
     const best = values.length > 0 ? Math.max(...values) : null
     if (best !== null && best < config.fitsThreshold) {
-      return { name: null, reason: `nothing fits, best ${best.toFixed(2)} < ${config.fitsThreshold}` }
+      return { name: null, reason: `nothing fits, best ${best.toFixed(2)} < ${config.fitsThreshold}${opened}` }
     }
     if (shortlist.some((skill) => skill.name === rerank.winner)) {
       const fit = rerank.fits[rerank.winner]
+      // The choice settles which, the winner's own noul whether: another
+      // candidate's high fit does not carry a winner that itself fits badly.
+      if (fit !== undefined && fit < config.fitsThreshold) {
+        return { name: null, reason: `rerank named ${rerank.winner}, but it fits ${fit.toFixed(2)} < ${config.fitsThreshold}${opened}` }
+      }
       return {
         name: rerank.winner,
-        reason: `rerank of ${shortlist.length}${fit === undefined ? '' : `, fits ${fit.toFixed(2)}`}`,
+        reason: `rerank of ${shortlist.length}${fit === undefined ? '' : `, fits ${fit.toFixed(2)}`}${opened}`,
       }
     }
     return { name: null, reason: `rerank named ${rerank.winner}, not on the shortlist` }
@@ -823,8 +904,25 @@ export function describeRerank(rerank: Rerank | null, ms: number | null): string
  * The persistent status line: the last thing the mod did, short enough to
  * sit on screen beside the engine's own notices.
  */
-export function describeStatus(suggested: string | null): string {
-  return suggested ? `jev · skill: ${suggested}` : 'jev · no skill'
+export function describeStatus(suggested: string | null, decidedBy = 'jev'): string {
+  // Only Jev's own answer is labelled "jev": a pick from the backup or the
+  // built-in classifier says so, or a Jev outage goes unnoticed.
+  const who = decidedBy === 'jev' ? 'jev' : `jev offline · ${decidedBy}`
+  return suggested ? `${who} · skill: ${suggested}` : `${who} · no skill`
+}
+
+/**
+ * The one-time notice for a Jev response that no retry will fix (no credit,
+ * bad or missing key), or null for anything else (timeouts, 5xx, 429).
+ */
+export function jevUnavailable(status: number, provider: Provider, onOpenRouter: boolean): string | null {
+  if (status !== 401 && status !== 402 && status !== 403) return null
+  const where = onOpenRouter ? 'OpenRouter' : provider === 'typesafe' ? 'TypeSafe' : 'the AI Gateway'
+  const why = status === 402 ? 'has no credit' : 'was refused'
+  const fix = onOpenRouter
+    ? 'add credit at openrouter.ai/settings/credits, or set TYPESAFE_API_KEY'
+    : 'check the key, or set OPENROUTER_API_KEY'
+  return `Jev is unavailable: the ${where} key ${why} (${status}). Skills are being picked by the fallback until then; ${fix}.`
 }
 
 /** The name of the plugin's own setup command, as the engine runs it. */
@@ -1035,8 +1133,12 @@ export interface DecisionRecord {
   decidedBy: string
   /** The backend Jev was asked on (`typesafe`/`gateway`), or null with no key. */
   provider: Provider | null
+  /** Who served the decision: `openrouter` (TypeSafe's API as OpenRouter serves it), `typesafe`, `gateway`, `backup` or `builtin`. */
+  via: string
   model: string | null
   promptChars: number
+  /** Whether the previous prompt went with it as `recent_context`. */
+  withContext: boolean
   candidates: number
   gate: number | null
   top: { name: string; probability: number | null }[]

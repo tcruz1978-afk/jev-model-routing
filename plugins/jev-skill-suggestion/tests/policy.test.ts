@@ -51,10 +51,17 @@ import {
   isOpenRouterUrl,
   PROXY_INJECTED,
   authHeader,
+  recentContextOf,
+  jevUnavailable,
+  DEFAULT_POLICY,
+  decisive,
+  fitsQuestion,
 } from '../hooks/policy.ts'
-import type { Candidate, PolicyConfig, Skill } from '../hooks/policy.ts'
+import type { Candidate, PolicyConfig, Skill, Wide } from '../hooks/policy.ts'
 
-const config: PolicyConfig = { shortlist: 3, gateThreshold: 0.3, fitsThreshold: 0.3 }
+// The cookbook's thresholds, with the decisive-ranking override off, so the
+// tests below read the two requests on their own.
+const config: PolicyConfig = { shortlist: 3, gateThreshold: 0.3, fitsThreshold: 0.3, decisiveRank: 1.01 }
 
 const LISTING = [
   'The following skills are available for use with the Skill tool:',
@@ -195,6 +202,49 @@ test('the rerank can flip the winner, and its fits nouls can reject the whole sh
   // A winner that was never on the shortlist is not trusted.
   const stray = readRerank(rerankAnswer('made-up', { powerpoint: 0.9 }))
   expect(decide(wide, stray, skills, config).name).toBeNull()
+})
+
+test("a winner that fits badly itself is not carried by another candidate's high fit", () => {
+  const wide = readWide(wideAnswer('powerpoint', DECK, ACTION))
+  // Seen live: the choice named session-start-hook (fits 0.26) while
+  // workflow-design fit 0.33, and session-start-hook was suggested.
+  const mismatched = readRerank(rerankAnswer('pptx-author', { powerpoint: 0.33, 'pptx-author': 0.26 }))
+  expect(decide(wide, mismatched, skills, config)).toEqual({
+    name: null,
+    reason: 'rerank named pptx-author, but it fits 0.26 < 0.3',
+  })
+})
+
+test('a decisive ranking opens a closed gate, and the rerank still has the last word', () => {
+  const on: PolicyConfig = { ...config, decisiveRank: 0.9 }
+  // "Design the approval workflow … as a flowchart": ranked 1.00, gate 0.23.
+  const sure = readWide(wideAnswer('powerpoint', { powerpoint: 0.97, 'pptx-author': 0.03 }, PROSE)) as Wide
+  expect(passesGate(sure, config)).toBe(false)
+  expect(passesGate(sure, on)).toBe(true)
+  expect(decide(sure, null, skills, config).name).toBeNull()
+  const fits = readRerank(rerankAnswer('powerpoint', { powerpoint: 0.95, 'pptx-author': 0.1 }))
+  expect(decide(sure, fits, skills, on)).toEqual({
+    name: 'powerpoint',
+    reason: 'rerank of 2, fits 0.95 (gate 0.10, opened by a decisive ranking 0.97)',
+  })
+  // Decisive but wrong ("that is what i said to do already" → 0.99): fits rejects it.
+  const wrong = readRerank(rerankAnswer('powerpoint', { powerpoint: 0.16, 'pptx-author': 0.05 }))
+  expect(decide(sure, wrong, skills, on).name).toBeNull()
+  // An undecided ranking leaves the gate as it was.
+  const flat = readWide(wideAnswer('powerpoint', DECK, PROSE)) as Wide
+  expect(passesGate(flat, on)).toBe(false)
+  expect(decisive(builtinWide('commit') as Wide, on)).toBe(false)
+})
+
+test('the defaults are the tuned ones, and the fits noul names the state fields and rules out vague replies', () => {
+  expect(DEFAULT_POLICY).toEqual({ shortlist: 3, gateThreshold: 0.3, fitsThreshold: 0.55, decisiveRank: 0.9 })
+  const text = fitsQuestion({ name: 'pdf', description: 'Merge and split PDFs' })
+  expect(text).toContain("the skill 'pdf'")
+  expect(text).toContain('`request`')
+  expect(text).toContain('`recent_context`')
+  expect(text).toContain('go-ahead')
+  expect(text).toContain('Merge and split PDFs')
+  expect(fitsQuestion({ name: 'x', description: '' })).toContain('a skill named x')
 })
 
 test('with the rerank off the top of the ranking is suggested; with it attempted and failed, nothing is', () => {
@@ -340,6 +390,34 @@ test('the log lines name the backend, the gate, the ranking, the rerank and the 
   )
   expect(describeStatus('pptx-author')).toBe('jev · skill: pptx-author')
   expect(describeStatus(null)).toBe('jev · no skill')
+  expect(describeStatus('pptx', 'backup openrouter/free')).toBe('jev offline · backup openrouter/free · skill: pptx')
+  expect(describeStatus(null, 'built-in classifier')).toBe('jev offline · built-in classifier · no skill')
+})
+
+test('the previous prompt and its skill become the recent context, cut short when long', () => {
+  expect(recentContextOf('', 'pptx')).toBe('')
+  expect(recentContextOf('prep the bundle for mobile', 'design-sync-prep')).toBe(
+    'Previous request: prep the bundle for mobile\n(the skill /design-sync-prep was loaded for it)',
+  )
+  expect(recentContextOf('hi', null)).toContain('no skill was loaded')
+  expect(recentContextOf('x'.repeat(50), null, 10)).toContain(`${'x'.repeat(10)}…`)
+})
+
+test('the recent context reaches Jev, the backup and the built-in classifier alike', () => {
+  const skills: Skill[] = [{ name: 'pptx', description: 'Author a deck' }]
+  const context = recentContextOf('make the Q3 deck', 'pptx')
+  expect(JSON.parse(requestBody('typesafe', 'now Q4', {}, 'jev-latest', context)).state.recent_context).toBe(context)
+  expect(JSON.parse(requestBody('typesafe', 'now Q4', {}, 'jev-latest')).state.recent_context).toBe('')
+  expect(classifyText('now Q4', skills, context)).toContain(context)
+  expect(classifyText('now Q4', skills)).not.toContain('Earlier in the conversation')
+  expect(JSON.parse(fallbackBody('now Q4', skills, 'm', context)).messages[1].content).toContain(context)
+})
+
+test('a refused or unfunded Jev key is named once with its fix; transient errors are not', () => {
+  expect(jevUnavailable(402, 'typesafe', true)).toContain('OpenRouter key has no credit (402)')
+  expect(jevUnavailable(401, 'typesafe', false)).toContain('TypeSafe key was refused (401)')
+  expect(jevUnavailable(429, 'typesafe', true)).toBeNull()
+  expect(jevUnavailable(503, 'gateway', false)).toBeNull()
 })
 
 test("the injection block carries the skill's body with its frontmatter off and its paths filled in", () => {

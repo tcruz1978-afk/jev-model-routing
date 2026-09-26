@@ -125,6 +125,9 @@ import {
   readFallback,
   appendRecord,
   decisionLogPath,
+  DEFAULT_POLICY,
+  recentContextOf,
+  jevUnavailable,
 } from './policy.ts'
 import type { Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Skill, Wide } from './policy.ts'
 
@@ -225,9 +228,10 @@ export const register: Register = (on, options) => {
   const timeoutMs = number('timeoutMs', 800)
   const logDecisions = flag('logDecisions', true)
   const policy: PolicyConfig = {
-    shortlist: Math.max(1, Math.round(number('shortlist', 3))),
-    gateThreshold: number('gateThreshold', 0.3),
-    fitsThreshold: number('fitsThreshold', 0.3),
+    shortlist: Math.max(1, Math.round(number('shortlist', DEFAULT_POLICY.shortlist))),
+    gateThreshold: number('gateThreshold', DEFAULT_POLICY.gateThreshold),
+    fitsThreshold: number('fitsThreshold', DEFAULT_POLICY.fitsThreshold),
+    decisiveRank: number('decisiveRank', DEFAULT_POLICY.decisiveRank),
   }
 
   // The names every skill_listing attachment carried so far. Once non-empty,
@@ -272,6 +276,12 @@ export const register: Register = (on, options) => {
       // The dashboard misses one line; the prompt is never held up over it.
     }
   }
+
+  // The previous prompt of the main conversation and the skill it got, sent
+  // as Jev's recent_context: "run it on X too" names no skill on its own.
+  let previous: { prompt: string; skill: string | null } | null = null
+  // A Jev refusal no retry fixes (no credit, bad key) is said once, loudly.
+  let outageReported = false
 
   // A skill whose frontmatter `name:` has spaces ("PocketBase API Rules") is
   // reported by `$.command.list()` under that name, but the engine lists,
@@ -359,9 +369,18 @@ export const register: Register = (on, options) => {
     suggested = null
 
     // Notifications and peer messages are not tasks; a typed `/name` already
-    // names its skill. Neither gets a suggestion.
-    if (!e.text.trim() || /^\/\S/.test(e.text.trim())) return next(e)
+    // names its skill. Neither gets a suggestion, but a typed `/name` is what
+    // the next prompt's follow-up will refer to.
     if (e.origin && NOT_A_TASK.has(e.origin.kind)) return next(e)
+    if (!e.text.trim()) return next(e)
+    if (/^\/\S/.test(e.text.trim())) {
+      // Only a command-shaped name is remembered as the skill; a pasted path
+      // ("/home/…") is still passed through untouched, with no skill.
+      const typed = /^\/([\w:.-]+)(?:\s|$)/.exec(e.text.trim())
+      previous = { prompt: e.text, skill: typed ? (typed[1] as string) : null }
+      return next(e)
+    }
+    const context = previous ? recentContextOf(previous.prompt, previous.skill) : ''
 
     /** One request to the active backend, or null on timeout, error or a non-2xx. */
     const ask = async (
@@ -375,12 +394,19 @@ export const register: Register = (on, options) => {
           $.http.fetch(url, {
             method: 'POST',
             headers: requestHeaders(active, apiKey, modelId),
-            body: requestBody(active, prompt, questions, modelId),
+            body: requestBody(active, prompt, questions, modelId, context),
           }),
           $.clock.sleep(timeoutMs),
         ])
         if (response && response.ok) return response.text
-        if (response) $.ui.log(`[jev-skill-suggestion] ${active} responded ${response.status} to the ${what}`)
+        if (response) {
+          $.ui.log(`[jev-skill-suggestion] ${active} responded ${response.status} to the ${what}`)
+          const outage = jevUnavailable(response.status, active, isOpenRouterUrl(url))
+          if (outage && !outageReported) {
+            outageReported = true
+            $.ui.log(`[jev-skill-suggestion] ${outage}`)
+          }
+        }
         else $.ui.log(`[jev-skill-suggestion] ${what} passed ${timeoutMs}ms; no suggestion`)
       } catch (error) {
         $.ui.log(`[jev-skill-suggestion] ${what} failed: ${String(error)}`)
@@ -406,6 +432,17 @@ export const register: Register = (on, options) => {
           ...projects.flatMap((root) => relative.map((file) => `${root}/${file}`)),
           ...(home ? relative.map((file) => `${home}/${file}`) : []),
         ]
+        // A plugin loaded from a folder (CLAUDE_CODE_PLUGIN_DIRS, --plugin-dir,
+        // this mod's own) is in no installed_plugins.json: its folder is
+        // named by the variable, or is this plugin's root.
+        if (plugin) {
+          const dirs = ((await $.env.get('CLAUDE_CODE_PLUGIN_DIRS')) ?? '').split(':').filter(Boolean)
+          if ($.plugin?.root) dirs.push($.plugin.root)
+          for (const dir of dirs) {
+            const trimmed = dir.replace(/\/+$/, '')
+            if (trimmed.endsWith(`/${plugin}`) || trimmed === $.plugin?.root) candidates.push(...pluginFileCandidates(trimmed, skill.name, plugin))
+          }
+        }
         if (plugin && home) {
           const installed = `${home}/.claude/plugins/installed_plugins.json`
           if (await $.fs.exists(installed)) {
@@ -493,7 +530,7 @@ export const register: Register = (on, options) => {
             $.http.fetch(fallbackUrl, {
               method: 'POST',
               headers: { 'content-type': 'application/json', ...authHeader(fallbackKey) },
-              body: fallbackBody(e.text, skills, model),
+              body: fallbackBody(e.text, skills, model, context),
             }),
             $.clock.sleep(Math.max(timeoutMs, 3000)),
           ])
@@ -514,7 +551,7 @@ export const register: Register = (on, options) => {
       // label, no gate, no rerank.
       decidedBy = 'built-in classifier'
       try {
-        const label = await $.model.classify(classifyText(e.text, skills), [
+        const label = await $.model.classify(classifyText(e.text, skills, context), [
           NONE,
           ...skills.map((skill) => skill.name),
         ])
@@ -579,7 +616,7 @@ export const register: Register = (on, options) => {
       )
     }
     // A row in the transcript scrolls away; this line stays on screen.
-    if (logDecisions) $.ui.status(describeStatus(pick?.name ?? null))
+    if (logDecisions) $.ui.status(describeStatus(pick?.name ?? null, decidedBy))
     if (logDecisions) {
       $.ui.log(
         pick
@@ -589,6 +626,7 @@ export const register: Register = (on, options) => {
     }
 
     suggested = pick?.name ?? null
+    previous = { prompt: e.text, skill: suggested }
     let block: string | null
     if (injectContent && pick) {
       const file = await fileOf(pick, pluginOf.get(pick.name))
@@ -611,8 +649,13 @@ export const register: Register = (on, options) => {
       kind: 'jev.decision',
       decidedBy,
       provider: decidedBy === 'jev' ? active : null,
+      via:
+        decidedBy === 'jev'
+          ? isOpenRouterUrl(url) ? 'openrouter' : (active ?? 'builtin')
+          : decidedBy.startsWith('backup ') ? (isOpenRouterUrl(fallbackUrl) ? 'openrouter' : 'backup') : 'builtin',
       model: decidedBy === 'jev' ? modelId || null : decidedBy.startsWith('backup ') ? decidedBy.slice(7) : null,
       promptChars: e.text.length,
+      withContext: context !== '',
       candidates: skills.length,
       gate: wide?.gate ?? null,
       top: (wide?.ranked ?? []).slice(0, 3),
@@ -637,6 +680,7 @@ export const register: Register = (on, options) => {
     roots = null
     files.clear()
     suggested = null
+    previous = null
     return next(e)
   })
   on('session.compact', async ($, e, next) => {
