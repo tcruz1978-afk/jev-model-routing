@@ -98,6 +98,8 @@ A typed `/name` still loads any skill, suggested or not.
 
 Two requests, in the cookbook's shape. Each may come back empty-handed.
 
+Both send the same state: `{ request, recent_context }`. `request` is the prompt; `recent_context` is the previous prompt of the conversation (cut to 600 characters) and the skill it got, or empty on the first prompt. A follow-up such as *run it on DeepDiagram too* or *same again for Q4* names no skill on its own; read against the request it continues, it routes like that request. The backup chat model and the built-in classifier are shown the same context.
+
 **Request 1 — skim every skill.** One `choice` (`which`) over every candidate, with its one-line description as the criterion; its probability distribution is the ranking. Beside it, three `noul`s about the *request*, not about any skill:
 
 | noul | asks |
@@ -106,9 +108,9 @@ Two requests, in the cookbook's shape. Each may come back empty-handed.
 | `would_follow_documented_procedure` | Would a careful expert consult a specific documented procedure or set of commands, rather than answer from general understanding? |
 | `prose_suffices` | Could a knowledgeable generalist fully satisfy this in prose, with no tools and no access to the user's files? (counts the other way round) |
 
-Their mean is the gate: under `gateThreshold` (0.30) nothing is suggested, whatever the ranking said. Questions about subject matter would not do this job — *explain what a monad is* and a task that needs a skill are both software.
+Their mean is the gate: under `gateThreshold` (0.30) nothing is suggested — unless the ranking is decisive, its top probability at least `decisiveRank` (0.90). Requests that name their deliverable (*design the approval workflow as a flowchart*, *have Gemini answer this*) rank the right skill at 1.00 yet score 0.08–0.23 on the gate, since a flowchart or an answer *could* be written in prose; a decisive ranking goes on to the rerank, whose `fits` still has the last word. Questions about subject matter would not do this job — *explain what a monad is* and a task that needs a skill are both software.
 
-**Request 2 — read the top three properly.** The same `choice` over the shortlist (`shortlist`, 3), now with each skill's full frontmatter description and the first `excerptChars` (700) of its SKILL.md as the criterion, and one `noul` per candidate — *does this skill do the specific thing the request asks for?* — answered on its own, so all of them can come back low. A shortlist whose best `fits` is under `fitsThreshold` (0.30) is dropped entirely; otherwise the `choice`'s winner is suggested. The two decide different things: the `choice` settles *which*, the `noul`s settle *whether*.
+**Request 2 — read the top three properly.** The same `choice` over the shortlist (`shortlist`, 3), now with each skill's full frontmatter description and the first `excerptChars` (700) of its SKILL.md as the criterion, and one `noul` per candidate — *is `request` clearly asking for the specific kind of work this skill does? No when it is too vague to tell, only a go-ahead, thanks or complaint, or wants something else* — answered on its own, so all of them can come back low. A shortlist whose best `fits` is under `fitsThreshold` (0.55) is dropped entirely, and so is a `choice` winner whose own `fits` is under it; otherwise the winner is suggested. The cookbook's shorter wording scored vague replies such as *yes merge all three when green* 0.61–0.70 for whichever skill ranked first (pdf, for *merge*); this one scores them 0.51 or less while right picks stay at 0.63 or more (210 runs of tc-ventures' `scripts/jev-routing` cases). The two decide different things: the `choice` settles *which*, the `noul`s settle *whether*.
 
 This is where lookalikes separate — on one line the skill that *edits* `.pptx` files reads nearly the same as the one that *authors* them; on 700 characters they do not.
 
@@ -177,7 +179,7 @@ If `/skills` still shows one of your own skills as `on` after `setup` and a rest
 
 ## Privacy
 
-With a key set, the prompt text and every candidate skill's name and one-line description leave the machine on the first request, and the first `excerptChars` of each shortlisted skill's SKILL.md on the second, to whichever backend the key belongs to. Nothing else. With no key set, nothing leaves the machine.
+With a key set, the prompt text (and, from the second prompt on, the previous one, cut to 600 characters) and every candidate skill's name and one-line description leave the machine on the first request, and the first `excerptChars` of each shortlisted skill's SKILL.md on the second, to whichever backend the key belongs to. Nothing else. With no key set, nothing leaves the machine.
 
 ## Options
 
@@ -198,7 +200,8 @@ With a key set, the prompt text and every candidate skill's name and one-line de
   rerank:           boolean second request over the shortlist (default true)
   shortlist:        number  how many of the ranking the second request re-reads (default 3)
   gateThreshold:    number  gate mean under which nothing is suggested (default 0.3)
-  fitsThreshold:    number  best `fits` under which the shortlist is dropped (default 0.3)
+  fitsThreshold:    number  best `fits`, and the winner's own, under which nothing is suggested (default 0.55)
+  decisiveRank:     number  top ranking probability that opens a closed gate (default 0.9; above 1 turns it off)
   excerptChars:     number  SKILL.md characters each candidate brings (default 700)
   alwaysListed:     string  comma-separated names that stay in the listing
   neverSuggested:   string  comma-separated names never offered to the decision model
@@ -206,7 +209,7 @@ With a key set, the prompt text and every candidate skill's name and one-line de
   logDecisions:     boolean log each decision (default true)
 ```
 
-`inject: "suggest"` with `hideListing: false` reproduces the cookbook exactly — the listing stays, the suggestion goes on top — and is the way to measure the suggestions against what the model would have chosen on its own before committing to the saving. The two thresholds are the cookbook's; TypeSafe's [confidence guide](https://docs.typesafe.ai/confidence) is the place to read before moving them. `alwaysListed` is for the one or two skills you want the model to know about on every prompt (a house-style `commit`, say); `neverSuggested` for skills that should only ever run when the user types them.
+`inject: "suggest"` with `hideListing: false` reproduces the cookbook exactly — the listing stays, the suggestion goes on top — and is the way to measure the suggestions against what the model would have chosen on its own before committing to the saving. The thresholds were set from labelled routing cases, as TypeSafe's [confidence guide](https://docs.typesafe.ai/confidence) advises ("pick your own thresholds from your own labeled data"): `scripts/jev-routing` in tc-ventures replays them against a live Jev. The cookbook's are 0.3/0.3 with no decisive override. `alwaysListed` is for the one or two skills you want the model to know about on every prompt (a house-style `commit`, say); `neverSuggested` for skills that should only ever run when the user types them.
 
 Declared in `.claude-plugin/plugin.json` (`userConfig`). Set them in `/config`, in user settings (`~/.claude/settings.json`, not project settings), with `--settings <file>` or in managed settings:
 

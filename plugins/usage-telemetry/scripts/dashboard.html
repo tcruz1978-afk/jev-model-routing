@@ -307,7 +307,7 @@ function render() {
     (r) => (r.d?.decidedBy === 'jev' ? 'jev' : 'backup') + '\u0000' + (r.m || (r.d?.decidedBy === 'jev' ? 'jev (OpenRouter)' : 'backup decider'))).entries()].map(([key, rs]) => {
     const [role, m] = key.split('\u0000'), isJev = role === 'jev';
     const costs = rs.filter((r) => Number.isFinite(r.c));
-    return { m, via: providerLabel(rs[0].d?.provider) + (isJev ? ' · Jev' : ' · Jev backup'), who: 'skill picker', calls: rs.length, c: costs.length ? sum(costs, (r) => r.c) : null, dec: true };
+    return { m, via: providerLabel(rs[0].d?.via || rs[0].d?.provider) + (isJev ? ' · Jev' : ' · Jev backup'), who: 'skill picker', calls: rs.length, c: costs.length ? sum(costs, (r) => r.c) : null, dec: true };
   }).sort((a, b) => b.calls - a.calls);
   const maxC = Math.max(...models.map((x) => x.c), 1e-9);
   table('models', [{ label: 'Model' }, { label: 'Via' }, { label: 'Used by' }, { label: 'Calls', num: 1 }, { label: 'Input', num: 1 }, { label: 'Output', num: 1 }, { label: 'Cache read', num: 1 }, { label: 'Cache write', num: 1 }, { label: 'Cost', num: 1 }, { label: '' }],
@@ -404,7 +404,7 @@ function daily(rows) {
   el.innerHTML = '<div class="note" style="margin:0 0 6px">Cost per day</div>' + svg + '</svg><div class="legend">' + series.map((m, j) => `<span><i style="background:${color(j)}"></i>${esc(m === 'other' ? 'other' : shortModel(m))}</span>`).join('') + '</div>';
 }
 
-const providerLabel = (p) => (!p || p === 'openrouter' ? 'OpenRouter' : p === 'typesafe' ? 'TypeSafe' : String(p));
+const providerLabel = (p) => (!p || p === 'openrouter' ? 'OpenRouter' : p === 'typesafe' ? 'TypeSafe' : p === 'gateway' ? 'AI Gateway' : p === 'builtin' ? 'Claude Code' : String(p));
 const DAY = 86400000;
 const CAT_LABEL = { fix: 'fix', review: 'review', ship: 'ship', setup: 'setup', design: 'design', data: 'data', build: 'build', writing: 'writing', research: 'research', reply: 'short reply', other: 'other', command: '/command' };
 const CAT_SERIES = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s7', '--s8'];

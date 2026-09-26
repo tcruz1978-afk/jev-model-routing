@@ -289,6 +289,7 @@ export function eventFromLog(raw, host) {
       data: {
         decidedBy: record.decidedBy,
         provider: record.provider,
+        via: record.via ?? null,
         gate: record.gate,
         top: record.top,
         rerank: record.rerank,
