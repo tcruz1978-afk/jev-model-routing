@@ -17,6 +17,15 @@ TypeSafe's own API wins when both keys are set: it is the only one that reports 
 
 **With no key configured the mod still works**: it falls back to the engine's own `$.model.classify`, which answers the ranking question with the small fast model, the descriptions folded into the text it reads. That path has no gate and no second request: its single answer is taken as is.
 
+## The model router on every prompt
+
+The same request that ranks the skills also asks Jev three routing questions: does the prompt need Claude Code's tools (files, commands, the repo, earlier turns), what kind of task is it, and what tier does it need. Routing adds no round trip; measured in a cloud session, that request took 340–370 ms with the routing questions on.
+
+When Jev is sure a prompt needs no tools (at least 80%), no skill was picked, the tier isn't quality, and the text doesn't read as project work (a path, a file name, a code block, git, "this repo"…), the model router answers it with local Ollama, then free models, held to the JQ bar. The answer is printed in the transcript and Claude's turn never starts. Anything else, and any router failure, goes to Claude as before. The router's answers since Claude's last turn are handed to Claude with the next prompt, so a follow-up has them.
+
+- Start a prompt with `claude:` to send it to Claude anyway. The JQ log records that as the router's answer being overruled.
+- `offload: false` turns this off; `offloadTimeoutMs` (default 60000) caps how long the router may take.
+
 ## Quick start
 
 Five steps, in this order. Each one is checkable before the next.

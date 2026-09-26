@@ -142,9 +142,14 @@ import {
   jqMissForNone,
   jevLine,
   withJevLine,
+  offloadable,
+  offloadContext,
+  offloadShown,
+  readRoute,
+  FOR_CLAUDE,
 } from './policy.ts'
-import { SHARED_DIR, decisionEntry, jqLogPath, outcomeEntry, writeEntry } from '../skills/model-router/scripts/jq-log.mjs'
-import type { Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Skill, Wide } from './policy.ts'
+import { SHARED_DIR, appendLine, decisionEntry, jqLogPath, outcomeEntry } from '../skills/model-router/scripts/jq-log.mjs'
+import type { Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Route, Skill, Wide } from './policy.ts'
 
 /** Prompt origins that are not a task of the person's: nothing to suggest for. */
 const NOT_A_TASK = new Set([
@@ -155,6 +160,106 @@ const NOT_A_TASK = new Set([
   'observer',
   'observer-activity',
 ])
+
+// The decision log the usage dashboard reads: one JSONL line per prompt
+// decided and per skill loaded, under ~/.claude/jev-log/. Never the
+// prompt's text. Best effort: a write that fails only costs the record.
+async function record(
+  $: { fs: { read: (path: string) => Promise<unknown>; write: (path: string, text: string) => Promise<void>; exists: (path: string) => Promise<boolean> }; env: { get: (name: string) => Promise<string | undefined> }; session: { id: () => Promise<string> }; clock: { now: () => Promise<number> } },
+  entry: UnstampedRecord,
+  logDecisions: boolean,
+): Promise<void> {
+  if (!logDecisions) return
+  try {
+    const home = (await $.env.get('HOME')) ?? ''
+    const session = await $.session.id()
+    if (!home || !session) return
+    const path = decisionLogPath(home, session)
+    const existing = (await $.fs.exists(path)) ? String(await $.fs.read(path)) : null
+    const ts = new Date(await $.clock.now()).toISOString()
+    await $.fs.write(path, appendRecord(existing, { ...entry, ts, session } as LogRecord))
+  } catch {
+    // The dashboard misses one line; the prompt is never held up over it.
+  }
+}
+
+// The judgement-quotient log (see jq-log.mjs): where it is, by jq.mjs's rule.
+async function jqAppend(
+  $: { fs: { read: (path: string) => Promise<unknown>; write: (path: string, text: string) => Promise<void>; exists: (path: string) => Promise<boolean> }; env: { get: (name: string) => Promise<string | undefined> } },
+  entry: object | null,
+): Promise<boolean> {
+  if (!entry) return false
+  try {
+    const env: Record<string, string | undefined> = {}
+    env.JQ_LOG = await $.env.get('JQ_LOG')
+    env.JQ_LOG_FILE = await $.env.get('JQ_LOG_FILE')
+    env.NODE_TEST_CONTEXT = await $.env.get('NODE_TEST_CONTEXT')
+    env.HOME = await $.env.get('HOME')
+    const path = jqLogPath(env, { sharedDirExists: await $.fs.exists(SHARED_DIR) })
+    if (!path) return false
+    // writeEntry's read-then-write, spelled out: the engine reads $ only as $.noun.method(...).
+    const existing = (await $.fs.exists(path)) ? String(await $.fs.read(path)) : null
+    await $.fs.write(path, appendLine(existing, entry))
+    return true
+  } catch {
+    // Keeping score never holds up the prompt.
+    return false
+  }
+}
+
+// Where project skills can live. A cloud session with several repositories
+// runs in their parent (/home/user) with each repo added beside it, so the
+// working directory alone has no `.claude/skills`: every direct child with
+// a `.claude/` folder counts as a project too. Read once per session.
+async function findProjectRoots($: { session: { cwd: () => Promise<string>; root: () => Promise<string> }; fs: { exists: (path: string) => Promise<boolean>; list: (path?: string) => Promise<{ name: string; kind: string }[]> } }): Promise<string[]> {
+  const found: string[] = []
+  for (const base of [await $.session.cwd(), await $.session.root()]) {
+    if (!base || found.includes(base)) continue
+    found.push(base)
+    try {
+      for (const entry of await $.fs.list(base)) {
+        const child = `${base}/${entry.name}`
+        if (entry.kind === 'dir' && !entry.name.startsWith('.') && !found.includes(child) && (await $.fs.exists(`${child}/.claude`))) found.push(child)
+      }
+    } catch {
+      // An unreadable directory only narrows the search.
+    }
+  }
+  return found
+}
+
+/**
+ * Runs the model router's offload (local Ollama, then free models) on the
+ * prompt; the answer, or null (a failure is logged and Claude answers).
+ */
+async function offload(
+  $: { plugin: { root: string }; process: { run: (argv: readonly string[], init?: { env?: Record<string, string>; timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }> }; ui: { status: (text: string | undefined) => void; log: (text: string) => void } },
+  prompt: string,
+  route: Route,
+  timeoutMs: number,
+  logDecisions: boolean,
+): Promise<{ text: string; model: string; via: string } | null> {
+  const root = $.plugin.root
+  if (!root || !route.category || !route.tier) return null
+  $.ui.status('Jev: answering with the model router…')
+  try {
+    const { exitCode, stdout, stderr } = await $.process.run(
+      ['node', `${root}/skills/model-router/scripts/router.mjs`, prompt, '--offload', '--no-jev', '--category', route.category, '--tier-hint', route.tier, '--timeout', '30', '--json'],
+      // Node's fetch honours HTTPS_PROXY only with this; without a proxy it changes nothing.
+      { env: { NODE_USE_ENV_PROXY: '1' }, timeoutMs },
+    )
+    if (exitCode !== 0) {
+      if (logDecisions) $.ui.log(`[jev-skill-suggestion] router could not answer; Claude answers: ${String(stderr).trim().split('\n').filter((l) => !/UNDICI|trace-warnings/.test(l)).pop() ?? `exit ${exitCode}`}`)
+      return null
+    }
+    const result = JSON.parse(stdout) as { text?: string; model?: string; via?: string }
+    if (!result.text?.trim()) return null
+    return { text: result.text, model: result.model ?? 'unknown model', via: result.via ?? 'router' }
+  } catch (error) {
+    if (logDecisions) $.ui.log(`[jev-skill-suggestion] router failed; Claude answers: ${String(error)}`)
+    return null
+  }
+}
 
 export const register: Register = (on, options) => {
   const text = (key: string, fallback: string) =>
@@ -242,6 +347,11 @@ export const register: Register = (on, options) => {
   const excerptChars = number('excerptChars', 700)
   const timeoutMs = number('timeoutMs', 800)
   const logDecisions = flag('logDecisions', true)
+  // The model router on every prompt: Jev's skill request also asks whether the
+  // prompt needs Claude Code's tools, and a prompt that plainly doesn't is
+  // answered by the router's local and free models instead of starting a turn.
+  const offloadOn = flag('offload', true)
+  const offloadTimeoutMs = number('offloadTimeoutMs', 60000)
   const policy: PolicyConfig = {
     shortlist: Math.max(1, Math.round(number('shortlist', DEFAULT_POLICY.shortlist))),
     gateThreshold: number('gateThreshold', DEFAULT_POLICY.gateThreshold),
@@ -271,48 +381,23 @@ export const register: Register = (on, options) => {
   // The setup hint, once per session.
   let hintedSetup = false
 
-  // The decision log the usage dashboard reads: one JSONL line per prompt
-  // decided and per skill loaded, under ~/.claude/jev-log/. Never the
-  // prompt's text. Best effort: a write that fails only costs the record.
-  const record = async (
-    $: { fs: { read: (path: string) => Promise<unknown>; write: (path: string, text: string) => Promise<void>; exists: (path: string) => Promise<boolean> }; env: { get: (name: string) => Promise<string | undefined> }; session: { id: () => Promise<string> }; clock: { now: () => Promise<number> } },
-    entry: UnstampedRecord,
-  ) => {
-    if (!logDecisions) return
-    try {
-      const home = (await $.env.get('HOME')) ?? ''
-      const session = await $.session.id()
-      if (!home || !session) return
-      const path = decisionLogPath(home, session)
-      const existing = (await $.fs.exists(path)) ? String(await $.fs.read(path)) : null
-      const ts = new Date(await $.clock.now()).toISOString()
-      await $.fs.write(path, appendRecord(existing, { ...entry, ts, session } as LogRecord))
-    } catch {
-      // The dashboard misses one line; the prompt is never held up over it.
-    }
-  }
 
-  // The judgement-quotient log (see jq-log.mjs): where it is, by jq.mjs's rule.
-  const jqAppend = async (
-    $: { fs: { read: (path: string) => Promise<unknown>; write: (path: string, text: string) => Promise<void>; exists: (path: string) => Promise<boolean> }; env: { get: (name: string) => Promise<string | undefined> } },
-    entry: object | null,
-  ): Promise<boolean> => {
-    if (!entry) return false
-    try {
-      const env: Record<string, string | undefined> = {}
-      for (const name of ['JQ_LOG', 'JQ_LOG_FILE', 'NODE_TEST_CONTEXT', 'HOME']) env[name] = await $.env.get(name)
-      const path = jqLogPath(env, { sharedDirExists: await $.fs.exists(SHARED_DIR) })
-      return await writeEntry(entry, path, $.fs)
-    } catch {
-      // Keeping score never holds up the prompt.
-      return false
-    }
-  }
   // The last pick the user was shown (the `Jev: …` line), waiting for the
   // next prompt to say what they did about it.
   let shown: { skill: string; jqId: string } | null = null
   // A logged "none" decision: a skill the user types next is a Jev miss (owner, 2026-09-26).
   let unpicked: { jqId: string } | null = null
+  // The router's answers since the last prompt that reached Claude, handed to
+  // Claude with the next one so a follow-up has them.
+  let routerAnswers: { prompt: string; text: string; model: string }[] = []
+  // The last offload's JQ entry: a `claude:` prompt next overrules it, anything else keeps it.
+  let offloaded: { jqId: string } | null = null
+  /** The prompt on its way to Claude, carrying the router's answers in between. */
+  const toClaude = (e: { context?: readonly string[] }) => {
+    const note = offloadContext(routerAnswers)
+    routerAnswers = []
+    return note ? { ...e, context: [...(e.context ?? []), note] } : e
+  }
 
   // The previous prompt of the main conversation and the skill it got, sent
   // as Jev's recent_context: "run it on X too" names no skill on its own.
@@ -326,30 +411,9 @@ export const register: Register = (on, options) => {
   // from one to the other is read from disk once per session, in whichever
   // hook first needs it.
   let displayToId: Map<string, string> | null = null
-
-  // Where project skills can live. A cloud session with several repositories
-  // runs in their parent (/home/user) with each repo added beside it, so the
-  // working directory alone has no `.claude/skills`: every direct child with
-  // a `.claude/` folder counts as a project too. Read once per session.
+  // Where project skills can live (findProjectRoots), read once per session.
   let roots: string[] | null = null
-  const projectRoots = async ($: { session: { cwd: () => Promise<string>; root: () => Promise<string> }; fs: { exists: (path: string) => Promise<boolean>; list: (path?: string) => Promise<{ name: string; kind: string }[]> } }) => {
-    if (roots) return roots
-    const found: string[] = []
-    for (const base of [await $.session.cwd(), await $.session.root()]) {
-      if (!base || found.includes(base)) continue
-      found.push(base)
-      try {
-        for (const entry of await $.fs.list(base)) {
-          const child = `${base}/${entry.name}`
-          if (entry.kind === 'dir' && !entry.name.startsWith('.') && !found.includes(child) && (await $.fs.exists(`${child}/.claude`))) found.push(child)
-        }
-      } catch {
-        // An unreadable directory only narrows the search.
-      }
-    }
-    roots = found
-    return roots
-  }
+
 
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
     if (!resolved) {
@@ -426,6 +490,13 @@ export const register: Register = (on, options) => {
         }
       }
     }
+    if (offloaded && !(e.origin && NOT_A_TASK.has(e.origin.kind)) && e.text.trim()) {
+      const was = offloaded
+      offloaded = null
+      const outcome = FOR_CLAUDE.test(e.text) ? 'overruled' : 'kept'
+      const ok = await jqAppend($, outcomeEntry(was.jqId, outcome, { answer: outcome === 'overruled' ? 'claude' : undefined, now: await $.clock.now() }))
+      if (ok && logDecisions) $.ui.log(`[jev-skill-suggestion] JQ ${was.jqId}: router answer ${outcome}`)
+    }
     if (shown && !(e.origin && NOT_A_TASK.has(e.origin.kind)) && e.text.trim()) {
       const was = shown
       shown = null
@@ -454,7 +525,7 @@ export const register: Register = (on, options) => {
       // ("/home/…") is still passed through untouched, with no skill.
       const typed = /^\/([\w:.-]+)(?:\s|$)/.exec(e.text.trim())
       previous = { prompt: e.text, skill: typed ? (typed[1] as string) : null }
-      return next(e)
+      return next(toClaude(e))
     }
     const context = previous ? recentContextOf(previous.prompt, previous.skill) : ''
 
@@ -501,9 +572,9 @@ export const register: Register = (on, options) => {
       try {
         const home = (await $.env.get('HOME')) ?? ''
         const relative = skillFileCandidates(skill.name, plugin)
-        // The project's `.claude/` (each project root, see `projectRoots`)
+        // The project's `.claude/` (each project root, see `findProjectRoots`)
         // and the user's.
-        const projects = await projectRoots($)
+        const projects = (roots ??= await findProjectRoots($))
         const candidates = [
           ...projects.flatMap((root) => relative.map((file) => `${root}/${file}`)),
           ...(home ? relative.map((file) => `${home}/${file}`) : []),
@@ -513,10 +584,10 @@ export const register: Register = (on, options) => {
         // named by the variable, or is this plugin's root.
         if (plugin) {
           const dirs = ((await $.env.get('CLAUDE_CODE_PLUGIN_DIRS')) ?? '').split(':').filter(Boolean)
-          if ($.plugin?.root) dirs.push($.plugin.root)
+          if ($.plugin.root) dirs.push($.plugin.root)
           for (const dir of dirs) {
             const trimmed = dir.replace(/\/+$/, '')
-            if (trimmed.endsWith(`/${plugin}`) || trimmed === $.plugin?.root) candidates.push(...pluginFileCandidates(trimmed, skill.name, plugin))
+            if (trimmed.endsWith(`/${plugin}`) || trimmed === $.plugin.root) candidates.push(...pluginFileCandidates(trimmed, skill.name, plugin))
           }
         }
         if (plugin && home) {
@@ -562,7 +633,7 @@ export const register: Register = (on, options) => {
       commands = await $.command.list()
       if (!displayToId && commands.some((command) => !commandLike(command.name))) {
         const found: { dir: string; markdown: string }[] = []
-        for (const root of [...(await projectRoots($)), (await $.env.get('HOME')) ?? '']) {
+        for (const root of [...((roots ??= await findProjectRoots($))), (await $.env.get('HOME')) ?? '']) {
           const dir = root && `${root}/.claude/skills`
           if (!dir || !(await $.fs.exists(dir))) continue
           for (const entry of await $.fs.list(dir)) {
@@ -575,24 +646,28 @@ export const register: Register = (on, options) => {
       commands = canonical(commands, displayToId ?? new Map())
     } catch (error) {
       $.ui.log(`[jev-skill-suggestion] could not list the skills: ${String(error)}`)
-      return next(e)
+      return next(toClaude(e))
     }
     // Loading the skill itself, the mod is not bound to what the engine would
     // list: a skill hidden with skillOverrides is still a candidate.
     const skills = catalog(commands, injectContent ? new Set() : listed, neverSuggested)
     if (skills.length === 0) {
       if (logDecisions) $.ui.log('[jev-skill-suggestion] no candidate skills; nothing to suggest')
-      return next(e)
+      return next(toClaude(e))
     }
     const pluginOf = new Map(commands.map((command) => [command.name, command.plugin]))
 
     // Request 1: rank everything, and ask whether the prompt wants a skill at all.
     const startedAt = await $.clock.now()
     let wide: Wide | null = null
+    let route: Route | null = null
     let decidedBy = 'jev'
+    // The router's questions ride on this request only for a prompt the user typed while idle.
+    const routing = offloadOn && !e.turnId
     if (active) {
-      const answer = await ask(e.text, wideQuestions(active, skills), 'ranking')
+      const answer = await ask(e.text, wideQuestions(active, skills, routing), 'ranking')
       if (answer) wide = readWide(answer)
+      if (answer && routing) route = readRoute(answer)
     }
     // Jev gave no answer (no key, error or timeout): the backup chat model
     // answers the built-in classifier's question. One label, no gate, no rerank.
@@ -760,12 +835,30 @@ export const register: Register = (on, options) => {
       rerankMs,
       injected: injectContent && pick !== null,
       jqId,
-    })
+    }, logDecisions)
+    if (routing && decidedBy === 'jev') {
+      const verdict = offloadable(route, e.text, { pickedSkill: pick !== null, attachments: Boolean(e.attachments?.length) })
+      if (logDecisions) $.ui.log(`[jev-skill-suggestion] router: ${verdict.ok ? 'answering without Claude' : 'Claude answers'} (${verdict.reason})`, { to: verdict.ok ? 'transcript' : 'debug' })
+      const answer = verdict.ok && route ? await offload($, e.text, route, offloadTimeoutMs, logDecisions) : null
+      if (verdict.ok && logDecisions) $.ui.status(answer ? `Jev: answered by ${answer.model} (${answer.via})` : describeStatus(pick?.name ?? null, decidedBy))
+      if (answer) {
+        const entry = decisionEntry(
+          { tool: 'jev-skill-suggestion', question: 'offload', answer: 'router', confidence: 1 - (route?.needsTools ?? 1), decidedBy },
+          { now: await $.clock.now() },
+        )
+        offloaded = (await jqAppend($, entry)) && entry ? { jqId: entry.id } : null
+        routerAnswers.push({ prompt: e.text, text: answer.text, model: answer.model })
+        // Not entered: the answer is shown in place of Claude's turn, line by line.
+        const shownAnswer = offloadShown(answer)
+        for (const text of shownAnswer.lines) $.ui.log(text)
+        return { drop: shownAnswer.footer }
+      }
+    }
     if (block) block = withJevLine(block, line)
-    if (!block) return next(e)
+    if (!block) return next(toClaude(e))
     // Attached on the way down: one block after the prompt as typed, read by
     // the model and never shown to the person.
-    return next({ ...e, context: [...(e.context ?? []), block] })
+    return next(toClaude({ ...e, context: [...(e.context ?? []), block] }))
   })
 
   // An injected skill lives in the conversation, not the process: `/clear`
@@ -779,6 +872,8 @@ export const register: Register = (on, options) => {
     previous = null
     shown = null
     unpicked = null
+    routerAnswers = []
+    offloaded = null
     return next(e)
   })
   on('session.compact', async ($, e, next) => {
@@ -801,7 +896,7 @@ export const register: Register = (on, options) => {
               : 'nothing was suggested'
         $.ui.log(`[jev-skill-suggestion] skill /${e.skill} loaded (${how})`)
       }
-      await record($, { kind: 'jev.skill_load', skill: e.skill, suggested, asSuggested: suggested === e.skill })
+      await record($, { kind: 'jev.skill_load', skill: e.skill, suggested, asSuggested: suggested === e.skill }, logDecisions)
       return next(e)
     }
     // The plugin's own setup command: its markdown is a placeholder, and the
@@ -816,7 +911,7 @@ export const register: Register = (on, options) => {
       commands = await $.command.list()
       if (!displayToId && commands.some((command) => !commandLike(command.name))) {
         const found: { dir: string; markdown: string }[] = []
-        for (const root of [...(await projectRoots($)), (await $.env.get('HOME')) ?? '']) {
+        for (const root of [...((roots ??= await findProjectRoots($))), (await $.env.get('HOME')) ?? '']) {
           const dir = root && `${root}/.claude/skills`
           if (!dir || !(await $.fs.exists(dir))) continue
           for (const entry of await $.fs.list(dir)) {
