@@ -51,6 +51,28 @@ reasoning models, which spend a few hundred tokens thinking before they answer.
 When an answer hits the cap it is cut short (or empty, if thinking used it all):
 the CLI prints a note on stderr and `complete()` returns `truncated: true`.
 
+## Default order
+
+A prompt with no `--local`, `--free`, `--paid` or `--model` flag goes down a
+fixed order, cheapest first, after Jev decides the kind of task and the tier
+once. The JQ bar applies as usual: a pick less sure than the level needs isn't
+used, and the tier never drops below the level's floor.
+
+1. `local`: the pulled Ollama models (see "Local models"). The router first checks
+   that Ollama answers, and gives up on it after 2 seconds.
+2. `agent`: the subscription command-line tools for the owned families on the
+   route Jev picked, in the route's order (`agents` in `routes.json`: `claude -p`,
+   `gemini -p`, `codex exec`). They run on the owner's own sign-in, use their
+   own default model, and get 300 seconds. A tool that isn't installed is skipped.
+3. `free`: the category's free models on OpenRouter.
+4. `paid`: the OpenRouter route for the tier.
+
+A quality tier goes `agent` then `paid`: local and free models aren't trusted
+with work that must be right. `--dry-run` prints the order. Each call's log
+record (and the usage dashboard's `router.call` event) carries `via`, the step
+that answered, and `tried`, why each step before it didn't. `--paid` skips
+straight to the paid route.
+
 ## Providers you already pay for
 
 `owned` in `routes.json` lists the providers the owner already pays for by
@@ -207,7 +229,8 @@ the category; pass `--category` or `--no-jev` to stay fully offline).
 ## Use
 
 ```sh
-node router.mjs "Refactor this function: ..."
+node router.mjs "Refactor this function: ..."          # default order: local → subscriptions → free → paid
+node router.mjs "Refactor this function: ..." --paid   # straight to the paid route
 node router.mjs "Draft a launch email" --prefer quality
 node router.mjs "Explain RLS in Postgres" --open --prefer cheap
 node router.mjs "anything" --model deepseek/deepseek-r1

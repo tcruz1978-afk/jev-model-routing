@@ -8,6 +8,7 @@
 // Keys come from the environment (never this file). OPENROUTER_API_KEY alone is
 // enough: OpenRouter serves Jev itself on its System One API. TYPESAFE_API_KEY
 // or AI_GATEWAY_API_KEY, when set, reach Jev directly instead.
+import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -498,7 +499,7 @@ export async function plan(prompt, options = {}) {
   if (bar && !options.prefer && TIERS.indexOf(prefer) > TIERS.indexOf(bar.minTier)) prefer = bar.minTier
   const result = route(prompt, { ...options, category, prefer })
   const decidedBy = settled ? 'flags' : trusted(jev?.category) || trusted(jev?.tier) ? (jev.backend.startsWith('stand-in') ? jev.backend : `Jev (${jev.backend})`) : 'heuristics'
-  return { ...result, reason: `${result.reason} · decided by ${decidedBy}${bar ? ` · ${bar.label}` : ''}`, jev }
+  return { ...result, prefer: options.free || options.local ? null : prefer, reason: `${result.reason} · decided by ${decidedBy}${bar ? ` · ${bar.label}` : ''}`, jev }
 }
 
 /** The jqIds a decision's picks were logged under, for the output line. */
@@ -772,6 +773,111 @@ async function completeLocal(prompt, options, decision) {
   throw new Error(`Ollama: no local model answered (${errors.join('; ')})`)
 }
 
+// How long a subscription agent (Claude Code, Gemini CLI, Codex) gets to answer.
+export const AGENT_TIMEOUT_MS = 300_000
+// How long the default order waits to learn whether Ollama is running at all.
+const OLLAMA_PROBE_MS = 2000
+
+/** Runs a command without a shell; resolves its stdout, rejects with its stderr or `not installed`. */
+export function runCommand(command, args, { timeoutMs = AGENT_TIMEOUT_MS, env = process.env } = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, env }, (error, stdout, stderr) => {
+      if (!error) return resolve(stdout)
+      if (error.code === 'ENOENT') return reject(new Error(`${command} is not installed`))
+      if (error.killed) return reject(new Error(`${command}: no answer within ${timeoutMs / 1000}s`))
+      reject(new Error(`${command}: ${String(stderr || error.message).trim().slice(0, 300)}`))
+    })
+  })
+}
+
+/**
+ * The subscription agents for a route, in the route's order: one per owned
+ * family that has an agent in routes.json (`agents`) and a model on the route.
+ */
+export function agentsOnRoute(category, prefer, owned = ownedFamilies()) {
+  const families = []
+  for (const id of config.routes[category]?.[prefer] ?? []) {
+    const family = String(id).split('/')[0]
+    if (owned.includes(family) && config.agents?.[family] && !families.includes(family)) families.push(family)
+  }
+  return families.map((family) => ({ family, ...config.agents[family] }))
+}
+
+/** Sends the prompt to one subscription agent's command-line tool, on the owner's own sign-in. */
+export async function completeAgent(prompt, agent, { system, timeoutMs, env, runImpl = runCommand } = {}) {
+  const text = system ? `${system}\n\n${prompt}` : prompt
+  const args = agent.args.map((a) => (a === '{prompt}' ? text : a))
+  const out = await runImpl(agent.command, args, { timeoutMs, env })
+  return { model: `${agent.command} (${agent.family} subscription)`, text: String(out), usage: null, truncated: false }
+}
+
+/**
+ * The default order for a decision: local Ollama, then the subscription agents
+ * the route names, then free models, then the paid route. A quality tier (Jev's
+ * pick, or the JQ level's floor) goes straight to the subscriptions and paid
+ * models: local and free models are not trusted with work that must be right.
+ */
+export function cascadeSteps(decision, owned = ownedFamilies()) {
+  const quality = decision.prefer === 'quality'
+  const agents = agentsOnRoute(decision.category, decision.prefer ?? 'balanced', owned)
+  return [
+    ...(quality ? [] : [{ via: 'local' }]),
+    ...agents.map((agent) => ({ via: 'agent', agent })),
+    ...(quality ? [] : [{ via: 'free' }]),
+    { via: 'paid' },
+  ]
+}
+
+const stepLabel = (step) => (step.via === 'agent' ? step.agent.command : step.via)
+
+/**
+ * Routes and answers one prompt the default way: Jev (with the JQ bar) decides
+ * the kind of task and tier once, then each step of cascadeSteps is tried in
+ * turn until one answers. Returns the answer with `via` (the step that answered)
+ * and `tried` (why each step before it didn't).
+ */
+export async function completeCascade(prompt, options = {}) {
+  const { env = process.env, fetchImpl = fetch, runImpl = runCommand } = options
+  const decision = await plan(prompt, options)
+  const steps = cascadeSteps(decision, options.owned ?? ownedFamilies(env))
+  // The later steps reuse Jev's decision instead of asking again.
+  const settled = { ...options, model: undefined, category: decision.category, prefer: decision.prefer ?? 'balanced', jev: false }
+  const tried = []
+  for (const step of steps) {
+    let result
+    try {
+      if (step.via === 'local') {
+        const probe = await ollamaModels({ env, fetchImpl: (url, init) => fetchImpl(url, { ...init, signal: AbortSignal.timeout(OLLAMA_PROBE_MS) }) }).catch(() => null)
+        if (!probe) { tried.push(`local: Ollama is not running at ${ollamaBase(env)}`); continue }
+        result = await completeLocal(prompt, { ...settled, local: true }, route(prompt, { ...settled, local: true }))
+      } else if (step.via === 'agent') {
+        result = await completeAgent(prompt, step.agent, { system: options.system, timeoutMs: options.agentTimeoutMs, env, runImpl })
+      } else if (step.via === 'free') {
+        result = await complete(prompt, { ...settled, free: true })
+      } else {
+        result = await complete(prompt, settled)
+      }
+    } catch (error) {
+      tried.push(`${stepLabel(step)}: ${String(error.message ?? error).slice(0, 200)}`)
+      continue
+    }
+    if (!result.text?.trim()) {
+      tried.push(`${stepLabel(step)}: empty answer${result.truncated ? ' (hit the token cap)' : ''}`)
+      continue
+    }
+    const decidedBy = decision.reason.split(' · ').filter((part) => part.startsWith('decided by') || /\bJQ \d/.test(part))
+    return {
+      ...decision,
+      ...result,
+      jev: decision.jev,
+      via: step.via,
+      tried,
+      reason: [`${decision.category} / ${decision.prefer ?? 'balanced'}`, ...decidedBy, `answered via ${stepLabel(step)}`].join(' · '),
+    }
+  }
+  throw new Error(`no step answered: ${tried.join('; ')}`)
+}
+
 // Ollama's own API reports errors as { error: "text" }.
 const errorText = (body) => (typeof body?.error === 'string' ? body.error : body?.error?.message ?? '')
 
@@ -957,7 +1063,10 @@ export function callRecord(prompt, opts, result, ms, error, env = process.env) {
     session: env.CLAUDE_CODE_SESSION_ID || null,
     promptChars: prompt.length,
     category: result?.category ?? opts.category ?? null,
-    prefer: opts.prefer ?? (opts.free ? 'free' : opts.local ? 'local' : null),
+    prefer: result?.prefer ?? opts.prefer ?? (opts.free ? 'free' : opts.local ? 'local' : null),
+    // Which step answered in the default order (local, agent, free, paid), and why the ones before it didn't.
+    via: result?.via ?? (opts.local ? 'local' : opts.free ? 'free' : 'paid'),
+    tried: result?.tried ?? [],
     open: Boolean(opts.open),
     decidedBy: result ? (result.reason.split(' · ').find((part) => part.startsWith('decided by')) ?? null) : null,
     requested: result?.models?.[0] ?? opts.model ?? null,
@@ -995,8 +1104,11 @@ export async function listModels() {
 const USAGE = `Usage:
   node router.mjs "prompt" [--prefer quality|balanced|cheap] [--open] [--model <id>]
                            [--category <name>] [--system "..."] [--max-tokens <n>]
-                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--strict] [--allow-owned] [--no-explore] [--local] [--think] [--timeout <seconds>]
+                           [--jq <1-5> | --team <name>] [--no-jev] [--free] [--strict] [--allow-owned] [--no-explore] [--local] [--paid] [--think] [--timeout <seconds>]
                            [--dry-run] [--json]
+  With no --local, --free, --paid or --model, the prompt goes down the default order:
+  local Ollama, then the subscription agents the route names (Claude Code, Gemini CLI,
+  Codex), then free models, then the paid route. A quality tier skips local and free.
   node router.mjs sweep "prompt"  send it down every category × tier route, 4 at a time
                            (accepts --open, --free, --local, --category, --prefer, --max-tokens,
                            --concurrency <n>, --json; --dry-run lists the routes, no calls)
@@ -1005,6 +1117,9 @@ const USAGE = `Usage:
   node router.mjs check           verify every model in routes.json still exists
   node router.mjs check --local   which local routes' Ollama models are pulled
   node router.mjs models [text]   list OpenRouter's models, optionally filtered`
+
+/** No flag that picks a path (--local, --free, --paid, --model): the default order. */
+const defaultOrder = (opts) => !(opts.local || opts.free || opts.paid || opts.model)
 
 function parse(argv) {
   const opts = { _: [] }
@@ -1019,6 +1134,7 @@ function parse(argv) {
     else if (a === '--free') opts.free = true
     else if (a === '--strict') opts.strict = true
     else if (a === '--local') opts.local = true
+    else if (a === '--paid') opts.paid = true
     else if (a === '--json') opts.json = true
     else if (['--prefer', '--model', '--category', '--system', '--team', '--jq'].includes(a)) opts[a.slice(2)] = argv[++i]
     else if (a === '--max-tokens') opts.maxTokens = Number(argv[++i])
@@ -1102,12 +1218,14 @@ Tiers: q quality, b balanced, c cheap. * first choice only with --open. Route co
   if (opts.dryRun) {
     // A dry run makes no real call, so it isn't logged for the judgement quotient.
     const decision = await plan(prompt, { ...opts, jqLogFile: null })
-    return console.log(opts.json ? JSON.stringify(decision, null, 2) : `${decision.reason}\n→ ${decision.models.join(' → ')}`)
+    if (!defaultOrder(opts)) return console.log(opts.json ? JSON.stringify(decision, null, 2) : `${decision.reason}\n→ ${decision.models.join(' → ')}`)
+    const steps = cascadeSteps(decision).map((s) => (s.via === 'agent' ? `${s.agent.command} (${s.agent.family} subscription)` : s.via === 'paid' ? `paid: ${decision.models.join(', ')}` : s.via))
+    return console.log(opts.json ? JSON.stringify({ ...decision, order: steps }, null, 2) : `${decision.reason}\norder: ${steps.join(' → ')}`)
   }
   const startedAt = Date.now()
   let result
   try {
-    result = await complete(prompt, opts)
+    result = defaultOrder(opts) ? await completeCascade(prompt, opts) : await complete(prompt, opts)
   } catch (error) {
     logCall(callRecord(prompt, opts, null, Date.now() - startedAt, error))
     throw error
@@ -1118,6 +1236,7 @@ Tiers: q quality, b balanced, c cheap. * first choice only with --open. Route co
     const ids = jqIdsOf(result)
     console.log(`${result.text.trim()}\n\n[${result.model} · ${result.reason}${ids.length ? ` · jqId ${ids.join(', ')}` : ''}]`)
     const why = result.creditShort ? CREDIT_HINT[result.creditShort] : null
+    if (result.tried?.length) console.error(`note: skipped ${result.tried.join('; ')}`)
     if (result.outOfCredit)
       console.error(`note: out of credit${why ? ` (${why})` : ''}; answered by a free model (rate-limited: 20/min, 50/day)`)
     if (result.standIn)

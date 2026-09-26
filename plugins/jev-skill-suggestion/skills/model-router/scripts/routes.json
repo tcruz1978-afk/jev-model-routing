@@ -8,6 +8,30 @@
       "anthropic"
     ]
   },
+  "agents": {
+    "_comment": "The subscription agents that do an owned family's work on the owner's own sign-in, run as command-line tools. Used by the default order (local, then these, then free, then paid) when the route Jev picked names a model of that family; a tool that is not installed is skipped. {prompt} is replaced by the prompt (passed as one argument, never through a shell). The tool uses its own default model; the route only decides which subscription to use.",
+    "anthropic": {
+      "command": "claude",
+      "args": [
+        "-p",
+        "{prompt}"
+      ]
+    },
+    "google": {
+      "command": "gemini",
+      "args": [
+        "-p",
+        "{prompt}"
+      ]
+    },
+    "openai": {
+      "command": "codex",
+      "args": [
+        "exec",
+        "{prompt}"
+      ]
+    }
+  },
   "decider": {
     "default": "openai/gpt-6-luna",
     "open": "qwen/qwen3.8-flash",
