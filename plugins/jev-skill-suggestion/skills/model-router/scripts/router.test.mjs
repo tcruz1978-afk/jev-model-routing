@@ -1170,3 +1170,11 @@ test("a named free model of an owned family is allowed, and falls back to the fa
   assert.equal(result.model, 'google/gemma-4-26b-a4b-it:free')
   assert.ok(chats.every((c) => c.model.endsWith(':free')), 'nothing paid')
 })
+
+test('free lists lead with the free models that answer (probed 2026-09-26: Nemotron Ultra and Super), before the router and the often rate-limited ones', () => {
+  const reliable = ['nvidia/nemotron-3-ultra-550b-a55b:free', 'nvidia/nemotron-3-super-120b-a12b:free']
+  for (const [category, ids] of Object.entries(config.free)) {
+    assert.ok(reliable.includes(ids[0]) && reliable.includes(ids[1]), category)
+    assert.equal(ids[2], 'openrouter/free', category)
+  }
+})

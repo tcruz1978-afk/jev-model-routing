@@ -224,10 +224,10 @@
   },
   "free": {
     "code": [
-      "poolside/laguna-s-2.1:free",
       "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "nvidia/nemotron-3-super-120b-a12b:free",
       "openrouter/free",
-      "qwen/qwen3.8-27b:free"
+      "poolside/laguna-s-2.1:free"
     ],
     "reasoning": [
       "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -237,27 +237,27 @@
     ],
     "long_context": [
       "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "google/gemma-4-31b-it:free",
-      "openrouter/free",
-      "nvidia/nemotron-3-super-120b-a12b:free"
-    ],
-    "writing": [
-      "google/gemma-4-31b-it:free",
-      "nvidia/nemotron-3-ultra-550b-a55b:free",
-      "openrouter/free",
-      "qwen/qwen3.8-27b:free"
-    ],
-    "quick": [
-      "nvidia/nemotron-3.5-lightning:free",
-      "google/gemma-4-26b-a4b-it:free",
+      "nvidia/nemotron-3-super-120b-a12b:free",
       "openrouter/free",
       "google/gemma-4-31b-it:free"
     ],
+    "writing": [
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "openrouter/free",
+      "google/gemma-4-31b-it:free"
+    ],
+    "quick": [
+      "nvidia/nemotron-3-super-120b-a12b:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "openrouter/free",
+      "nvidia/nemotron-3.5-lightning:free"
+    ],
     "general": [
       "nvidia/nemotron-3-super-120b-a12b:free",
-      "google/gemma-4-31b-it:free",
+      "nvidia/nemotron-3-ultra-550b-a55b:free",
       "openrouter/free",
-      "nvidia/nemotron-3-ultra-550b-a55b:free"
+      "google/gemma-4-31b-it:free"
     ]
   },
   "local": {}
