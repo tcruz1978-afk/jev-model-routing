@@ -29,7 +29,7 @@ export const LIVE = {
 
 export const LIVE_COLUMNS = ['id', 'kind', 'ts', 'session', 'host', 'project', 'agent', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'tool', 'skill', 'mcp_server', 'ok']
 /** The only kinds whose `data` payload is read whole. */
-export const DATA_KINDS = ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool', 'jq.decision', 'jq.outcome', 'jev.arm']
+export const DATA_KINDS = ['jev.decision', 'jev.miss', 'router.call', 'openrouter.key', 'tool', 'jq.decision', 'jq.outcome', 'jev.arm', 'delegate.run']
 /** A prompt's data is read only for these labels: its kind of request, never its words. */
 export const PROMPT_FIELDS = ['category', 'slash', 'correction']
 
@@ -165,6 +165,8 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
       row.d = { jq: data.jq ?? null, answer: data.answer ?? null, conf: Number.isFinite(data.confidence) ? data.confidence : null, decidedBy: data.decidedBy ?? null }
     } else if (event.kind === 'jev.arm') {
       row.d = { arm: data.arm ?? null }
+    } else if (event.kind === 'delegate.run') {
+      row.d = { agent: data.agent ?? null, status: data.status ?? null, billing: data.billing ?? null, ms: data.ms ?? null, files: data.files ?? null, error: data.error ?? null, review: data.review ?? null }
     } else if (event.kind === 'jq.outcome') {
       row.d = { jq: data.jq ?? null, outcome: data.outcome ?? null }
     } else if (event.kind === 'prompt') {

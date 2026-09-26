@@ -16,7 +16,7 @@ reads what the session's files gained since the last run:
 | `~/.claude/projects/**/<session>.jsonl` | `api` (model, tokens, API-list-price cost), `tool` (name, skill, MCP server, failed?, time), `prompt`, `jev.suggested` |
 | `…/<session>/subagents/agent-*.jsonl` (+ `.meta.json`) | the same, tagged `subagent:<type>` |
 | `~/.claude/jev-log/<session>.jsonl` (jev-skill-suggestion) | `jev.decision`, `jev.skill_load` |
-| `~/.claude/jev-log/router.jsonl` (model-router) | `router.call` (model asked / answered, tokens, OpenRouter cost) |
+| `~/.claude/jev-log/router.jsonl` (model-router) | `router.call` (model asked / answered, tokens, OpenRouter cost), and `delegate.run` from tc-ventures' delegate tool (agent, model, result, who pays, cost, time, files changed; never the task), shown on the Agents tab |
 | OpenRouter `/key` and `/credits`, hourly | `openrouter.key` (credit left, key limit, free requests) |
 | JQ log (`JQ_LOG_FILE`, the shared project folder, or `~/.jq/decisions.jsonl`) | `jq.decision` (tool, answer, stated confidence), `jq.outcome` (kept, overruled, asked); never the question |
 

@@ -593,7 +593,7 @@ export async function saveFile(downloads, filename, data) {
 
 // ---------- the view in the URL hash ----------
 
-export const TABS = ['rankings', 'compare', 'overview', 'explore', 'logs', 'jev', 'router', 'health']
+export const TABS = ['rankings', 'compare', 'overview', 'explore', 'logs', 'jev', 'router', 'agents', 'health']
 /** Rankings: what the top-models chart shows, and what the performance ranking ranks by. */
 export const SHOWS = ['spend', 'tokens', 'calls']
 export const RANK_BY = ['landed', 'speed', 'cost', 'failures', 'cache', 'spend']

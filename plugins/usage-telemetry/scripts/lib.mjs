@@ -381,6 +381,27 @@ export function eventFromLog(raw, host) {
       },
     })
   }
+  if (record.kind === 'delegate.run' && typeof record.agent === 'string') {
+    // One task handed to another agent by tc-ventures' delegate tool (Codex,
+    // Gemini CLI, Hermes, OpenCode, Grok, or its OpenRouter runner). Never the task.
+    return base({
+      id: `delegate:${record.session ?? 'none'}:${record.ts}:${record.agent}`,
+      kind: 'delegate.run',
+      ...common,
+      model: record.model ?? null,
+      cost_usd: Number.isFinite(record.costUsd) ? record.costUsd : null,
+      ok: record.status === 'done' ? true : record.status === 'kept' ? null : false,
+      data: {
+        agent: record.agent,
+        status: record.status ?? null,
+        billing: record.billing ?? null,
+        ms: Number.isFinite(record.ms) ? record.ms : null,
+        files: Number.isFinite(record.files) ? record.files : null,
+        error: typeof record.error === 'string' ? record.error.slice(0, 200) : null,
+        review: record.review ?? null,
+      },
+    })
+  }
   return null
 }
 

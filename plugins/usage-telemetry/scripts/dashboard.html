@@ -344,7 +344,7 @@ td .bad { color: var(--bad); font-weight: 600; }
     </div>
   </div>
   <nav class="wrap tabs" id="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" data-tab="rankings" aria-controls="tab-rankings">Rankings</button><button role="tab" data-tab="compare" aria-controls="tab-compare">Compare models</button><button role="tab" data-tab="overview" aria-controls="tab-overview">Spend</button><button role="tab" data-tab="explore" aria-controls="tab-explore">Explore</button><button role="tab" data-tab="logs" aria-controls="tab-logs">Logs</button><button role="tab" data-tab="jev" aria-controls="tab-jev">Jev</button><button role="tab" data-tab="router" aria-controls="tab-router">Router</button><button role="tab" data-tab="health" aria-controls="tab-health">Health</button>
+    <button role="tab" data-tab="rankings" aria-controls="tab-rankings">Rankings</button><button role="tab" data-tab="compare" aria-controls="tab-compare">Compare models</button><button role="tab" data-tab="overview" aria-controls="tab-overview">Spend</button><button role="tab" data-tab="explore" aria-controls="tab-explore">Explore</button><button role="tab" data-tab="logs" aria-controls="tab-logs">Logs</button><button role="tab" data-tab="jev" aria-controls="tab-jev">Jev</button><button role="tab" data-tab="router" aria-controls="tab-router">Router</button><button role="tab" data-tab="agents" aria-controls="tab-agents">Agents</button><button role="tab" data-tab="health" aria-controls="tab-health">Health</button>
   </nav>
 </header>
 <main class="wrap">
@@ -525,6 +525,20 @@ td .bad { color: var(--bad); font-weight: 600; }
       <div class="chart" id="r-calls"></div>
       <ul class="legend" id="r-calls-legend"></ul>
       <div id="r-calls-pivot"></div>
+    </section>
+  </section>
+
+  <!-- Agents -->
+  <section class="tab" id="tab-agents" role="tabpanel" hidden>
+    <section class="card" aria-labelledby="h-agents">
+      <h2 id="h-agents">Which agents did tasks get handed to, and how did they do?</h2>
+      <p class="note" id="agents-note"></p>
+      <div class="tbox" id="ag-by"></div>
+    </section>
+    <section class="card" aria-labelledby="h-ag-runs">
+      <h2 id="h-ag-runs">Every handed-off task, newest first</h2>
+      <p class="note">One row per run of tc-ventures' delegate tool. The task itself is never recorded.</p>
+      <div class="tbox" id="ag-runs"></div>
     </section>
   </section>
 
@@ -1165,6 +1179,43 @@ function routerTab(C) {
   }
 }
 
+// ---------- Agents ----------
+
+const AGENT_NAMES = { runner: 'Runner (OpenRouter)', hermes: 'Hermes Agent', codex: 'Codex', opencode: 'OpenCode', grok: 'Grok Build', gemini: 'Gemini CLI' };
+const agentName = (a) => AGENT_NAMES[a] || a || 'unknown';
+const STATUS_WORDS = { done: 'done', 'agent-failed': 'agent failed', 'review-failed': 'review failed', kept: 'kept by Claude' };
+
+function agentsTab(C) {
+  const { P } = C;
+  const runs = DATA.rows.filter((r) => r.k === 'delegate.run' && r.t > P.from && r.t <= P.to && hostMatch(r.h, V.h)).sort((a, b) => b.t - a.t);
+  const priced = runs.filter((r) => Number.isFinite(r.c));
+  const cost = priced.reduce((a, r) => a + r.c, 0);
+  $('agents-note').textContent = runs.length
+    ? `${plural(runs.length, 'task')} handed to another agent, ${money(cost)} logged${priced.length < runs.length ? ` (no cost logged for ${plural(runs.length - priced.length, 'run')}: subscription agents, or a run that failed early)` : ''}. Red: the agent failed or timed out, or the review panel failed its diff.`
+    : 'No tasks were handed to another agent in this period.';
+  const by = new Map();
+  for (const r of runs) {
+    const a = r.d?.agent ?? 'unknown';
+    const e = by.get(a) ?? { agent: a, runs: 0, done: 0, failed: 0, cost: 0, ms: [], billing: r.d?.billing ?? null };
+    e.runs++;
+    if (r.d?.status === 'done') e.done++;
+    else if (r.d?.status && r.d.status !== 'kept') e.failed++;
+    if (Number.isFinite(r.c)) e.cost += r.c;
+    if (Number.isFinite(r.d?.ms)) e.ms.push(r.d.ms);
+    by.set(a, e);
+  }
+  const mid = (xs) => { if (!xs.length) return null; const v = [...xs].sort((a, b) => a - b), m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
+  $('ag-by').innerHTML = table(['Agent', 'Runs', 'Done', 'Failed', 'Cost', 'Typical time', 'Billed to'], [...by.values()].sort((a, b) => b.runs - a.runs).map((e) => ({
+    bad: e.failed ? [3] : [],
+    cells: [esc(agentName(e.agent)), esc(n0(e.runs)), esc(ofN(e.done, e.runs)), esc(n0(e.failed)), esc(money(e.cost)), esc(durText(mid(e.ms))), esc(e.billing || '—')],
+  })), { empty: 'No handed-off tasks in this period.', left: [6] });
+  const shown = runs.slice(0, 100);
+  $('ag-runs').innerHTML = table(['When', 'Agent', 'Model', 'Result', 'Files changed', 'Cost', 'Time'], shown.map((r) => ({
+    cls: r.d?.status && r.d.status !== 'done' && r.d.status !== 'kept' ? 'bad' : '',
+    cells: [esc(shortTime(r.t)), esc(agentName(r.d?.agent)), esc(r.m ? modelName(r.m) : '—'), esc((STATUS_WORDS[r.d?.status] || r.d?.status || '—') + (r.d?.error ? `: ${r.d.error}` : '')), esc(Number.isFinite(r.d?.files) ? n0(r.d.files) : '—'), esc(Number.isFinite(r.c) ? money(r.c) : '—'), esc(durText(r.d?.ms ?? null))],
+  })), { empty: 'No handed-off tasks in this period.', left: [1, 2, 3] }) + more(runs.length, shown.length);
+}
+
 // ---------- 6. Health ----------
 
 function healthTab(C, stale, builtAgo) {
@@ -1403,7 +1454,7 @@ function renderAll() {
   const C = context();
   const { stale, builtAgo } = header(C);
   for (const t of TABS) $('tab-' + t).hidden = t !== V.tab;
-  const fn = { rankings: rankingsTab, compare: compareTab, overview, explore, logs, jev: jevTab, router: routerTab, health: (c) => healthTab(c, stale, builtAgo) }[V.tab];
+  const fn = { rankings: rankingsTab, compare: compareTab, overview, explore, logs, jev: jevTab, router: routerTab, agents: agentsTab, health: (c) => healthTab(c, stale, builtAgo) }[V.tab];
   fn(C);
 }
 
