@@ -329,17 +329,35 @@ function checkLanding(tcur, tprev, ctx) {
 
 // ---------- check 5: Model router (no target set) ----------
 
-function routerStats(rows) {
-  const calls = rows.filter((r) => r.k === 'router.call')
+/**
+ * A routed call's failure that the router now recovers from on its own
+ * (FIXES.router, #25), when it happened before that fix: a named free model
+ * refused (429 rate limit, 403 restricted, 404 no longer free), or a 402
+ * about in-flight requests. Any other failure, and any after the fix, counts.
+ */
+export function fixedRouterFailure(r, fixes = FIXES) {
+  if (r.ok !== false || !(r.t < fixes.router)) return false
+  const error = String(r.d?.error ?? '')
+  const status = Number(/OpenRouter (\d{3})/.exec(error)?.[1])
+  const free = String(r.d?.requested ?? r.m ?? '').endsWith(':free')
+  return (free && [403, 404, 429].includes(status)) || (status === 402 && /in-flight/i.test(error))
+}
+
+function routerStats(rows, fixes = FIXES) {
+  const all = rows.filter((r) => r.k === 'router.call')
+  // Failures the router has since been fixed to recover from leave the rate, and are listed apart.
+  const fixedSince = all.filter((r) => fixedRouterFailure(r, fixes))
+  const calls = all.filter((r) => !fixedSince.includes(r))
   const errors = calls.filter((r) => r.ok === false).length
   const fallbacks = calls.filter((r) => r.ok !== false && r.d?.fallbackFrom).length
-  return { calls, n: calls.length, errors, fallbacks, rate: calls.length ? (errors + fallbacks) / calls.length : null }
+  return { calls, n: calls.length, errors, fallbacks, fixedSince, rate: calls.length ? (errors + fallbacks) / calls.length : null }
 }
 
 function checkRouter(cur, prev, ctx) {
-  const a = routerStats(cur), b = routerStats(prev)
+  const a = routerStats(cur, ctx.fixes), b = routerStats(prev, ctx.fixes)
+  const fixedLine = a.fixedSince.length ? [`Not counted, fixed since: ${plural(a.fixedSince.length, 'failure')} before the router learned to recover from them (${fmtTime(ctx.fixes?.router ?? FIXES.router)}): a free model rate-limited or no longer free, or credit held by in-flight requests. The router now falls back within the model's family, or retries.`] : []
   const base = { id: 'router', title: 'Model router', targeted: true, target: `Lower is better; target ≤ ${pct(TARGETS.routerRate)} of routed calls erroring or served by a fallback model.`, n: a.n }
-  if (!a.n) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No routed calls in the window (n = 0).', compare: prevNote(ctx) ?? (b.n ? `Previous ${span(ctx.days)}: ${plural(b.n, 'call')}` : ''), lines: [] }
+  if (!a.n) return { ...base, state: 'untracked', figure: 'Not tracked', population: `No routed calls in the window (n = 0)${a.fixedSince.length ? ', apart from failures fixed since' : ''}.`, compare: prevNote(ctx) ?? (b.n ? `Previous ${span(ctx.days)}: ${plural(b.n, 'call')}` : ''), lines: fixedLine }
   const last = a.calls.reduce((x, y) => (y.t > x.t ? y : x))
   const status = last.ok === false ? `error: ${String(last.d?.error ?? 'unknown').slice(0, 60)}` : last.d?.fallbackFrom ? 'fallback' : 'ok'
   return {
@@ -349,7 +367,7 @@ function checkRouter(cur, prev, ctx) {
     population: `${plural(a.errors, 'error')} + ${plural(a.fallbacks, 'fallback')} of ${plural(a.n, 'routed call')} (n = ${n0(a.n)}).`,
     compare: prevNote(ctx) ?? (b.rate === null ? `Previous ${span(ctx.days)}: not tracked (no routed calls)` : `Previous ${span(ctx.days)}: ${pct(b.rate)} of ${n0(b.n)} · ${pp(a.rate, b.rate)}`),
     value: a.rate,
-    lines: [`Last call ${fmtTime(last.t)}: ${last.d?.category ?? 'task'} → ${last.m ?? 'unknown model'} (${status})`],
+    lines: [`Last call ${fmtTime(last.t)}: ${last.d?.category ?? 'task'} → ${last.m ?? 'unknown model'} (${status})`, ...fixedLine],
   }
 }
 
@@ -604,8 +622,11 @@ function attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end, fixes = 
  * still runs the old code; new chats get it.
  * - skills and Jev logging: commit 98eb9d7 ("Fix Jev picks that could never
  *   load; keep bundled skills on; log decisions", #2).
+ * - the model router: commit df4a4b4 ("fix the failures the dashboard
+ *   showed", #25): a refused free model falls back within its family, and a
+ *   402 about in-flight requests is retried.
  */
-export const FIXES = { skills: Date.parse('2026-09-26T14:16:47Z'), jevLog: Date.parse('2026-09-26T14:16:47Z') }
+export const FIXES = { skills: Date.parse('2026-09-26T14:16:47Z'), jevLog: Date.parse('2026-09-26T14:16:47Z'), router: Date.parse('2026-09-26T20:05:19Z') }
 
 /** Click-by-click steps, the only place a value to paste may appear. */
 export const HOW_TO = {
