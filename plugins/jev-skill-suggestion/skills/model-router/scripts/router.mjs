@@ -53,6 +53,10 @@ export const SWEEP_CONCURRENCY = 4
 // one. Generous: on a laptop the first request also loads the model, and
 // reasoning models think before they answer.
 export const LOCAL_TIMEOUT_MS = 180_000
+// How long one OpenRouter completion gets, reply body included. A stalled request
+// used to hang its caller (the review panel, delegated agents) for good; now it
+// is asked once more, then fails with a 408.
+export const REQUEST_TIMEOUT_MS = 180_000
 
 // What Jev chooses between.
 const CATEGORIES = {
@@ -547,8 +551,9 @@ export function sameFamily(id, { allowOwned = false, owned = ownedFamilies() } =
 
 /** Routes and sends one prompt; returns the answer and the model that served it. */
 export async function complete(prompt, options = {}) {
-  const { env = process.env, fetchImpl = fetch, maxTokens = options.local ? LOCAL_MAX_TOKENS : DEFAULT_MAX_TOKENS, retryDelayMs = RETRY_DELAY_MS } = options
+  const { env = process.env, fetchImpl = fetch, maxTokens = options.local ? LOCAL_MAX_TOKENS : DEFAULT_MAX_TOKENS, retryDelayMs = RETRY_DELAY_MS, timeoutMs = REQUEST_TIMEOUT_MS } = options
   if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('max tokens must be a positive integer')
+  if (!(timeoutMs > 0)) throw new Error('timeout must be a positive number of seconds')
   const creditCheck = options.creditCheck ?? (() => creditStatus({ env, fetchImpl }))
   let decision = await plan(prompt, options)
   if (options.local) return completeLocal(prompt, options, decision)
@@ -558,26 +563,39 @@ export async function complete(prompt, options = {}) {
   const send = async (models) => {
     for (let attempt = 0; ; attempt++) {
       const started = Date.now()
-      const response = await fetchImpl(`${API}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          ...apiAuth(env),
-          'Content-Type': 'application/json',
-          'X-Title': 'tc-ventures model-router',
-        },
-        body: JSON.stringify({
-          model: models[0],
-          ...(models.length > 1 ? { models } : {}),
-          max_tokens: maxTokens,
-          messages: messagesFor(prompt, options),
-        }),
-      })
-      const body = await response.json().catch(() => ({}))
+      const signal = AbortSignal.timeout(timeoutMs)
+      let response
+      let body
+      try {
+        response = await fetchImpl(`${API}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            ...apiAuth(env),
+            'Content-Type': 'application/json',
+            'X-Title': 'tc-ventures model-router',
+          },
+          body: JSON.stringify({
+            model: models[0],
+            ...(models.length > 1 ? { models } : {}),
+            max_tokens: maxTokens,
+            messages: messagesFor(prompt, options),
+          }),
+          signal,
+        })
+        body = await response.json().catch((error) => {
+          if (signal.aborted) throw error
+          return {}
+        })
+      } catch (error) {
+        if (!signal.aborted) throw error
+        response = { ok: false, status: 408 }
+        body = { error: { code: 408, message: `no reply within ${timeoutMs / 1000}s` } }
+      }
       // OpenRouter can answer 200 and still carry an upstream error in the body (it has already sent headers).
       const status = body.error?.code ?? response.status
       const dailyLimit = status === 429 && DAILY_FREE_LIMIT.test(body.error?.message ?? '')
       const inFlight = status === 402 && IN_FLIGHT.test(body.error?.message ?? '')
-      if (attempt === 0 && (RETRYABLE.has(status) || inFlight) && !dailyLimit) {
+      if (attempt === 0 && (RETRYABLE.has(status) || inFlight || status === 408) && !dailyLimit) {
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
         continue
       }

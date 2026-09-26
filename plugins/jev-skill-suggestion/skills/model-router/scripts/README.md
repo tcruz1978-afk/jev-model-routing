@@ -200,6 +200,10 @@ the category; pass `--category` or `--no-jev` to stay fully offline).
   the first request to a model also loads it, and reasoning models think
   first); past that its request is cancelled and the next model is tried. The
   output says which models were skipped and why.
+- OpenRouter requests get the same 3 minutes (`--timeout` sets both). A request
+  with no reply by then is cancelled and asked once more, then fails with
+  `OpenRouter 408: no reply within 180s`, so a stalled provider can't hang the
+  caller (the review panel, delegated agents, the prompt hook).
 - Ollama is reached at `OLLAMA_BASE_URL`, else Ollama's own `OLLAMA_HOST`, else
   `http://localhost:11434`. If it isn't running, the router says so.
 - `check --local` shows what's pulled and which models each route will use

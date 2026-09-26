@@ -484,6 +484,28 @@ test('a brief provider error is retried once, and only once', async () => {
   assert.equal(bad.chats.length, 1, 'not a brief error: no retry')
 })
 
+test('a stalled request times out, is asked once more, then fails instead of hanging', async () => {
+  const chats = []
+  // Never answers until aborted, like a request OpenRouter stops replying to.
+  const stalled = async (url, init) => {
+    if (!init.body) return { ok: false, json: async () => ({}) }
+    chats.push(JSON.parse(init.body))
+    return new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)))
+  }
+  // A real stalled request holds a socket open; the fake needs a timer to keep Node waiting.
+  const keepAlive = setInterval(() => {}, 1000)
+  try {
+    await assert.rejects(complete('hi', { ...QUICK, fetchImpl: stalled, timeoutMs: 50 }), /408: no reply within 0.05s/)
+    assert.equal(chats.length, 2)
+    // The second try answers: the call succeeds, marked as retried.
+    let n = 0
+    const secondAnswers = async (url, init) => (++n === 1 ? stalled(url, init) : { ok: true, status: 200, json: async () => answer(firstQuick)[1] })
+    assert.equal((await complete('hi', { ...QUICK, fetchImpl: secondAnswers, timeoutMs: 50 })).retried, true)
+  } finally {
+    clearInterval(keepAlive)
+  }
+})
+
 test('creditStatus tells an empty account from a spent key', async () => {
   const check = (credit) => creditStatus({ env: OR, fetchImpl: scripted([], credit).fetchImpl })
   assert.equal((await check({ credits: { total_credits: 0, total_usage: 0.16 }, key: { limit_remaining: 49.99 } })).short, 'account')
