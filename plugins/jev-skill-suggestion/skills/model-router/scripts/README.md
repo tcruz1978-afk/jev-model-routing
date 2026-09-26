@@ -54,13 +54,13 @@ the CLI prints a note on stderr and `complete()` returns `truncated: true`.
 ## Providers you already pay for
 
 `owned` in `routes.json` lists the providers the owner already pays for by
-subscription: `openai` (a ChatGPT plan) and `google` (a Gemini Enterprise
-seat). A subscription isn't an API key, so its work goes to that provider's
-own agent (Codex, Gemini CLI) instead; OpenRouter is never paid for it twice.
+subscription: `openai` (a ChatGPT plan), `google` (a Gemini Enterprise
+seat) and `anthropic` (a Claude plan). A subscription isn't an API key, so its work goes to that provider's
+own agent (Codex, Gemini CLI, Claude Code) instead; OpenRouter is never paid for it twice.
 
 - Paid routes drop those providers' models, and `openrouter/auto` (it could
   pick one), then top up from the category's other tiers, nearest first. The
-  output says `skipped openai, google (already paid for)`.
+  output says `skipped openai, google, anthropic (already paid for)`.
 - Naming an owned model (or `openrouter/auto`) with `--model` is refused.
 - The stand-in decider moves from `gpt-6-luna` to the open decider.
 - `--allow-owned` pays OpenRouter anyway for one call; `ROUTER_OWNED=openai,x-ai`
