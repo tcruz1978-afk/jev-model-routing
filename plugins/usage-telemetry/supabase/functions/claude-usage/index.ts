@@ -11,7 +11,7 @@ import postgres from 'npm:postgres@3.4.5'
 
 const sql = postgres(Deno.env.get('SUPABASE_DB_URL')!, { max: 3, prepare: false })
 
-const KINDS = new Set(['api', 'tool', 'prompt', 'jev.suggested', 'jev.decision', 'jev.skill_load', 'router.call', 'openrouter.key'])
+const KINDS = new Set(['api', 'tool', 'prompt', 'jev.suggested', 'jev.decision', 'jev.skill_load', 'router.call', 'openrouter.key', 'jev.miss'])
 const TEXT = ['session', 'host', 'project', 'agent', 'model', 'tool', 'skill', 'mcp_server'] as const
 const INTS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'] as const
 
@@ -26,7 +26,10 @@ function clean(event: Row): Row | null {
   for (const key of INTS) row[key] = Number.isFinite(event[key]) && (event[key] as number) >= 0 ? Math.round(event[key] as number) : null
   row.cost_usd = Number.isFinite(event.cost_usd) ? event.cost_usd : null
   row.ok = typeof event.ok === 'boolean' ? event.ok : null
-  const data = event.data && typeof event.data === 'object' && !Array.isArray(event.data) ? event.data : {}
+  const data: Row = event.data && typeof event.data === 'object' && !Array.isArray(event.data) ? { ...(event.data as Row) } : {}
+  // Prompt wording stays on the user's machine: a miss arrives without it,
+  // and any field that could carry it is dropped here as well.
+  for (const key of ['prompt', 'previous', 'text']) delete data[key]
   const text = JSON.stringify(data)
   row.data = text.length <= 8000 ? data : { truncated: true }
   return row

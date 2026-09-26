@@ -21,6 +21,7 @@ import { appendFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { eventFromLog, eventsFromTranscript, flushPending, keySnapshot, transcriptOf } from './lib.mjs'
+import { detectMisses, remember, saveLocalMisses } from './misses.mjs'
 
 const args = new Set(process.argv.slice(2))
 const hookMode = args.has('--hook')
@@ -33,6 +34,8 @@ const statePath = join(outDir, 'state.json')
 const eventsPath = join(outDir, 'events.jsonl')
 const outboxPath = join(outDir, 'outbox.jsonl')
 const lockPath = join(outDir, 'collect.lock')
+// Flagged misroutes with their words: local only, 7 days (see misses.mjs).
+const missesPath = join(outDir, 'misses.jsonl')
 const host = env.CLAUDE_CODE_REMOTE === 'true' ? 'cloud' : `local:${hostname()}`
 // A tool call with no result after this long is recorded as it stands.
 const STALE_PENDING_MS = 30 * 60 * 1000
@@ -136,6 +139,7 @@ async function main() {
     }
     state.files ??= {}
     const events = []
+    const promptTexts = {}
 
     for (const path of jsonlFiles(projectsDir)) {
       const where = transcriptOf(path, projectsDir)
@@ -145,7 +149,7 @@ async function main() {
       if (offset < file.offset) file.pending = {}
       file.offset = offset
       if (lines.length === 0 && Object.keys(file.pending).length === 0) continue
-      const ctx = { ...where, host, agentType: where.agentId ? agentTypeOf(path) : null, startCwd: file.startCwd ?? null }
+      const ctx = { ...where, host, agentType: where.agentId ? agentTypeOf(path) : null, startCwd: file.startCwd ?? null, promptTexts }
       events.push(...eventsFromTranscript(lines, ctx, file.pending))
       if (ctx.startCwd) file.startCwd = ctx.startCwd
       const stale = Object.fromEntries(
@@ -164,6 +168,12 @@ async function main() {
         if (event) events.push(event)
       }
     }
+
+    // Misroutes: the text-free events ship; the words stay in misses.jsonl.
+    state.missDetector = remember(state.missDetector ?? {}, events, promptTexts)
+    const misses = detectMisses(state.missDetector, host)
+    events.push(...misses.events)
+    if (misses.local.length) saveLocalMisses(missesPath, misses.local)
 
     events.push(...(await openRouterSnapshot(state)))
 

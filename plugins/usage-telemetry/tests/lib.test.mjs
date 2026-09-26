@@ -163,3 +163,50 @@ test('compact carries turns built from its own rows', () => {
   assert.deepEqual([turns[0].cat, turns[0].m, turns[0].land, turns[0].dur], ['build', 'claude-opus-5-5', false, 5000])
   assert.equal(turns[1].land, null)
 })
+
+import { decisionFor, detectMisses, judgeTurn, remember, saveLocalMisses } from '../scripts/misses.mjs'
+import { mkdtempSync, readFileSync as readText } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join as joinPath } from 'node:path'
+
+const at = (m) => new Date(Date.parse('2026-09-26T14:00:00Z') + m * 60000).toISOString()
+const prompt = (uuid, m, extra = {}) => ({ id: `prompt:${uuid}`, kind: 'prompt', ts: at(m), session: 's', agent: 'main', skill: extra.slash ?? null, data: { correction: Boolean(extra.correction) } })
+const decision = (m, pick, top = []) => ({ id: `jev:s:${m}`, kind: 'jev.decision', ts: at(m), session: 's', skill: pick, data: { top, gate: 0.5, reason: 'r' } })
+
+test('judgeTurn names each miss signal, and a clean turn raises none', () => {
+  const p = { uuid: 'a', t: 0, slash: null }
+  assert.deepEqual(judgeTurn(p, { t: 10, slash: 'pdf' }, { pick: null, top: [] }, []), { signal: 'typed-after', expected: 'pdf' })
+  assert.deepEqual(judgeTurn(p, { t: 10 }, { pick: 'x', top: [] }, [{ t: 5, skill: 'y', ok: true }]), { signal: 'claude-loaded-other', expected: 'y' })
+  assert.deepEqual(judgeTurn(p, { t: 10, correction: true }, { pick: 'x', top: [] }, []), { signal: 'picked-then-corrected', expected: null })
+  assert.deepEqual(judgeTurn(p, { t: 10 }, { pick: null, top: [{ name: 'wf', probability: 1 }] }, []), { signal: 'dropped-decisive', expected: 'wf' })
+  assert.equal(judgeTurn(p, { t: 10 }, { pick: 'x', top: [] }, [{ t: 5, skill: 'x', ok: true }]), null)
+  assert.equal(judgeTurn(p, { t: 10 }, null, []), null)
+  assert.equal(judgeTurn({ ...p, slash: 'pdf' }, { t: 10, slash: 'x' }, { pick: null }, []), null)
+})
+
+test('decisionFor prefers a logged decision over a transcript suggestion, within two minutes', () => {
+  const p = { t: 0 }
+  assert.equal(decisionFor([{ t: 1000, full: false, pick: 'a' }, { t: 3000, full: true, pick: 'b' }], p).pick, 'b')
+  assert.equal(decisionFor([{ t: 500000, full: true, pick: 'far' }], p), null)
+})
+
+test('misses ship without words; the words go only to the local file, and are forgotten once checked', () => {
+  const texts = { p1: 'Design the vendor onboarding approval flowchart', p2: 'use /workflow-design', p3: 'thanks' }
+  const events = [prompt('p1', 0), decision(0, null, [{ name: 'workflow-design', probability: 1 }]), prompt('p2', 2, { slash: 'workflow-design' }), prompt('p3', 4)]
+  const state = remember({}, events, texts)
+  const { events: shipped, local } = detectMisses(state, 'cloud', Date.parse(at(5)))
+  assert.equal(shipped.length, 1)
+  assert.equal(shipped[0].kind, 'jev.miss')
+  assert.equal(shipped[0].skill, 'workflow-design')
+  assert.equal(shipped[0].data.signal, 'typed-after')
+  assert.ok(!JSON.stringify(shipped).includes('vendor'), 'no prompt words in shipped events')
+  assert.equal(local[0].prompt, texts.p1)
+  assert.equal(state.s.prompts[0].text, null, 'checked prompts drop their words from state')
+  assert.equal(detectMisses(state, 'cloud', Date.parse(at(6))).events.length, 0, 'a turn is checked once')
+  const dir = mkdtempSync(joinPath(tmpdir(), 'misses-'))
+  const file = joinPath(dir, 'misses.jsonl')
+  saveLocalMisses(file, [...local, { id: 'old', ts: '2026-09-01T00:00:00Z' }], Date.parse(at(6)))
+  assert.deepEqual(readText(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l).id), ['miss:p1'])
+  detectMisses(state, 'cloud', Date.parse(at(6)) + 8 * 86400000)
+  assert.deepEqual(state, {}, 'sessions quiet for a week are dropped')
+})

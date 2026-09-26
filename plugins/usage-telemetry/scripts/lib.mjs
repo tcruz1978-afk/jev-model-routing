@@ -242,6 +242,8 @@ export function eventsFromTranscript(lines, ctx, pending = {}) {
       // whether it pushes back on the last answer kept, the words dropped.
       const text = !ctx.agentId && !line.isMeta ? promptText(content) : null
       if (text !== null && line.uuid) {
+        // Held locally for the miss detector (misses.mjs); never shipped.
+        if (ctx.promptTexts) ctx.promptTexts[line.uuid] = text
         const slash = slashCommandOf(content)
         events.push(base({
           id: `prompt:${line.uuid}`,
