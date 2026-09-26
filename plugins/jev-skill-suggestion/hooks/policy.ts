@@ -886,7 +886,10 @@ export interface SetupPlan {
   alreadyHidden: string[]
   /** A plugin's skills: `skillOverrides` cannot touch them, only `/plugin` can. */
   locked: string[]
-  /** Whether bundled skills still need `disableBundledSkills`. */
+  /**
+   * Whether bundled skills are on. They stay on: they live inside Claude
+   * Code, not on disk, so the mod could never inject one it had hidden.
+   */
   bundledStillOn: boolean
 }
 
@@ -951,7 +954,9 @@ export function setupInstructions(
   }
   const overrides: Record<string, string> = { ...settings.skillOverrides }
   for (const name of plan.hide) overrides[name] = 'user-invocable-only'
-  const after = JSON.stringify({ skillOverrides: overrides, disableBundledSkills: true }, null, 2)
+  // Bundled skills (artifact-design, dataviz, claude-api, simplify, ...) have
+  // no SKILL.md the mod can read, so turning them off takes them away for good.
+  const after = JSON.stringify({ skillOverrides: overrides, disableBundledSkills: false }, null, 2)
   const backup = JSON.stringify(
     { skillOverrides: settings.skillOverrides, disableBundledSkills: settings.disableBundledSkills ?? null },
     null,
@@ -969,8 +974,8 @@ export function setupInstructions(
   lines.push(
     '',
     plan.bundledStillOn
-      ? `Claude Code's bundled skills (simplify, loop, init, ...) will be hidden too, by setting "disableBundledSkills": true.`
-      : `Claude Code's bundled skills are already disabled ("disableBundledSkills": true).`,
+      ? `Claude Code's bundled skills (artifact-design, dataviz, simplify, ...) stay on: they are not files the mod can inject, so hiding them would take them away.`
+      : `Claude Code's bundled skills are disabled ("disableBundledSkills": true); this turns them back on, since the mod cannot inject them and they would otherwise be unusable.`,
   )
   if (plan.locked.length > 0) {
     lines.push(
@@ -1016,4 +1021,68 @@ export function setupAborted(reason: string): string {
 /** The hint logged while skills are still listed and the mod is meant to be the only source of them. */
 export function describeStillListed(count: number): string {
   return `${count} skill${count === 1 ? ' is' : 's are'} still listed for the model (withheld here, but /context counts them); run /${SETUP_COMMAND} to hand their selection to the mod for good`
+}
+
+/**
+ * One prompt's decision as the decision log keeps it, for the usage
+ * dashboard. The prompt's text is never stored, only its length.
+ */
+export interface DecisionRecord {
+  kind: 'jev.decision'
+  ts: string
+  session: string
+  /** `jev`, `backup <model>` or `built-in classifier`. */
+  decidedBy: string
+  /** The backend Jev was asked on (`typesafe`/`gateway`), or null with no key. */
+  provider: Provider | null
+  model: string | null
+  promptChars: number
+  candidates: number
+  gate: number | null
+  top: { name: string; probability: number | null }[]
+  rerank: { winner: string; confidence: number | null; fits: Record<string, number> } | null
+  pick: string | null
+  reason: string
+  wideMs: number | null
+  rerankMs: number | null
+  injected: boolean
+}
+
+/** A skill the model loaded, and whether it was the one suggested. */
+export interface SkillLoadRecord {
+  kind: 'jev.skill_load'
+  ts: string
+  session: string
+  skill: string
+  suggested: string | null
+  asSuggested: boolean
+}
+
+export type LogRecord = DecisionRecord | SkillLoadRecord
+
+/** A record before the hook stamps its time and session. */
+export type UnstampedRecord = Omit<DecisionRecord, 'ts' | 'session'> | Omit<SkillLoadRecord, 'ts' | 'session'>
+
+/** Where a session's decision log lives: one JSONL file per session. */
+export function decisionLogPath(home: string, session: string): string {
+  return `${home}/.claude/jev-log/${session.replace(/[^A-Za-z0-9_.-]/g, '_')}.jsonl`
+}
+
+/**
+ * The log's next content. `$.fs.write` replaces a file whole, so the lines
+ * already there are kept, and a torn last line (a write cut short) dropped.
+ */
+export function appendRecord(existing: string | null, record: LogRecord): string {
+  const kept = (existing ?? '')
+    .split('\n')
+    .filter((line) => {
+      if (!line.trim()) return false
+      try {
+        JSON.parse(line)
+        return true
+      } catch {
+        return false
+      }
+    })
+  return [...kept, JSON.stringify(record)].join('\n') + '\n'
 }

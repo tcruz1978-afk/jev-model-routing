@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, route, plan, complete, fellBack, config, DEFAULT_MAX_TOKENS } from './router.mjs'
+import { classify, route, plan, complete, fellBack, config, DEFAULT_MAX_TOKENS, callRecord } from './router.mjs'
 
 test('classifies common task types', () => {
   assert.equal(classify('Fix this bug in my TypeScript function'), 'code')
@@ -261,4 +261,22 @@ test('complete flags an answer cut short by max_tokens', async () => {
   const opts = { env: OR, jev: false, category: 'quick', prefer: 'cheap' }
   assert.equal((await complete('hi', { ...opts, fetchImpl: finished('length') })).truncated, true)
   assert.equal((await complete('hi', { ...opts, fetchImpl: finished('stop') })).truncated, false)
+})
+
+test('callRecord keeps the routing facts and never the prompt text', () => {
+  const result = {
+    category: 'code', models: ['a/x', 'b/y'], model: 'b/y', fallbackFrom: 'a/x', outOfCredit: false, truncated: false,
+    reason: 'code · decided by Jev (openrouter) · balanced', usage: { prompt_tokens: 12, completion_tokens: 30, cost: 0.0004 }, id: 'gen-1',
+  }
+  const record = callRecord('secret prompt', { prefer: 'cheap' }, result, 850, null, { CLAUDE_CODE_SESSION_ID: 's1' })
+  assert.equal(record.kind, 'router.call')
+  assert.equal(record.session, 's1')
+  assert.equal(record.promptChars, 13)
+  assert.equal(record.decidedBy, 'decided by Jev (openrouter)')
+  assert.equal(record.costUsd, 0.0004)
+  assert.equal(record.generationId, 'gen-1')
+  assert.ok(!JSON.stringify(record).includes('secret'))
+  const failed = callRecord('x', { model: 'a/x' }, null, 5, new Error('OpenRouter 500'), {})
+  assert.equal(failed.requested, 'a/x')
+  assert.equal(failed.error, 'OpenRouter 500')
 })
