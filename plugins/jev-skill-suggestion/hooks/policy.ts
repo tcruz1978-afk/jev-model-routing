@@ -1214,7 +1214,9 @@ export interface ArmShares {
   off: number
   noRouter: number
 }
-export const DEFAULT_ARM_SHARES: ArmShares = { off: 0.2, noRouter: 0.2 }
+// Off by default: every session gets Jev and the router. Set the plugin's
+// compareOff / compareNoRouter options to run the comparison.
+export const DEFAULT_ARM_SHARES: ArmShares = { off: 0, noRouter: 0 }
 
 /** The session's group: a hash of its id (FNV-1a) against the shares. Shares are clamped to 0..1 and to 1 in total. */
 export function armOf(sessionId: string, shares: ArmShares = DEFAULT_ARM_SHARES): Arm {
