@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, route, plan, ownedFamilies, isOwned, askDecider, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE } from './router.mjs'
+import { classify, route, plan, ownedFamilies, isOwned, askDecider, complete, callRecord, jqBar, loadTeams, accuracyNeed, DPMO, JQ_MIN_TIER, sweep, sweepRoutes, creditStatus, fellBack, config, DEFAULT_MAX_TOKENS, ollamaBase, localModels, pickInstalled, isEmbeddingModel, modelSize, autoLocalRoute, LOCAL_TIMEOUT_MS, LOCAL_MAX_TOKENS, statsFilePath, loadStats, recordOutcomes, trackRecord, rankByTrackRecord, modelOverview, explore, EXPLORE_RATE, cascadeSteps, completeCascade, agentsOnRoute } from './router.mjs'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -978,4 +978,101 @@ test('the stand-in decider moves off an owned default', async () => {
   await askDecider('fix this', { env: { OPENROUTER_API_KEY: 'k', ROUTER_OWNED: 'openai,google' }, fetchImpl })
   await askDecider('fix this', { env: { OPENROUTER_API_KEY: 'k', ROUTER_OWNED: 'none' }, fetchImpl })
   assert.deepEqual(asked, isOwned(config.decider.default, OWNED) ? [config.decider.open, config.decider.default] : [config.decider.default, config.decider.default])
+})
+
+// ---------- the default order: local, subscription agents, free, paid ----------
+
+/** A fake network: Jev on OpenRouter, Ollama (up or down), and OpenRouter chat answering per model list. */
+function world({ jev = null, ollama = null, chat = (body) => ({ model: body.model, choices: [{ message: { content: `from ${body.model}` } }] }) } = {}) {
+  const calls = []
+  const fetchImpl = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : null
+    calls.push({ url, body })
+    if (url.endsWith('/systemone')) return { ok: true, json: async () => ({ answers: jev }) }
+    if (url.includes(':11434')) {
+      if (!ollama) throw Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
+      if (url.endsWith('/api/tags')) return { ok: true, json: async () => ({ models: ollama.map((name) => ({ name, details: { parameter_size: '8B' } })) }) }
+      return { ok: true, json: async () => ({ model: body.model, message: { content: `local ${body.model}` }, done_reason: 'stop' }) }
+    }
+    const reply = chat(body)
+    return { ok: !reply.error, status: reply.status ?? 200, json: async () => reply }
+  }
+  return { calls, fetchImpl }
+}
+const noAgents = async (command) => { throw new Error(`${command} is not installed`) }
+const CASCADE = { env: OR, owned: ['openai', 'google', 'anthropic'], jqLogFile: null }
+
+test('default order: local, then the route\'s subscription agents, then free, then paid; quality skips local and free', () => {
+  const cheapCode = cascadeSteps({ category: 'code', prefer: 'cheap' }, CASCADE.owned).map((s) => s.via === 'agent' ? s.agent.command : s.via)
+  assert.deepEqual(cheapCode, ['local', 'codex', 'free', 'paid'])
+  const balancedLong = cascadeSteps({ category: 'long_context', prefer: 'balanced' }, CASCADE.owned).map((s) => s.via === 'agent' ? s.agent.command : s.via)
+  assert.deepEqual(balancedLong, ['local', 'gemini', 'free', 'paid'])
+  const quality = cascadeSteps({ category: 'code', prefer: 'quality' }, CASCADE.owned).map((s) => s.via === 'agent' ? s.agent.command : s.via)
+  assert.deepEqual(quality, ['claude', 'codex', 'paid'])
+  // Nothing owned: no agents.
+  assert.deepEqual(agentsOnRoute('code', 'quality', []), [])
+})
+
+test('default order: Ollama answers first when it is running, and Jev is asked once', async () => {
+  const { calls, fetchImpl } = world({ jev: { category: { choice: 'code', confidence: 0.9 }, tier: { choice: 'cheap', confidence: 0.9 } }, ollama: ['qwen3:8b'] })
+  const result = await completeCascade('fix this bug', { ...CASCADE, fetchImpl, runImpl: noAgents })
+  assert.equal(result.via, 'local')
+  assert.equal(result.text, 'local qwen3:8b')
+  assert.equal(calls.filter((c) => c.url.endsWith('/systemone')).length, 1)
+  assert.match(result.reason, /code \/ cheap · decided by Jev \(openrouter\) · answered via local/)
+})
+
+test('default order: Ollama down, the subscription agent answers on its own sign-in', async () => {
+  const { fetchImpl } = world({ jev: { category: { choice: 'long_context', confidence: 0.9 }, tier: { choice: 'balanced', confidence: 0.9 } } })
+  const ran = []
+  const runImpl = async (command, args) => { ran.push([command, ...args]); return 'answer from gemini' }
+  const result = await completeCascade('summarise this long report', { ...CASCADE, fetchImpl, runImpl })
+  assert.equal(result.via, 'agent')
+  assert.equal(result.text, 'answer from gemini')
+  assert.deepEqual(ran, [['gemini', '-p', 'summarise this long report']])
+  assert.match(result.tried[0], /^local: Ollama is not running/)
+})
+
+test('default order: no agent installed, free models answer at no cost', async () => {
+  const { calls, fetchImpl } = world({ jev: { category: { choice: 'code', confidence: 0.9 }, tier: { choice: 'cheap', confidence: 0.9 } } })
+  const result = await completeCascade('fix this bug', { ...CASCADE, fetchImpl, runImpl: noAgents })
+  assert.equal(result.via, 'free')
+  const sent = calls.filter((c) => c.url.endsWith('/chat/completions'))
+  assert.equal(sent.length, 1)
+  assert.ok(sent[0].body.models.every((id) => config.free.code.includes(id)), 'only free models were sent')
+  assert.match(result.tried.join('; '), /codex: codex is not installed/)
+})
+
+test('default order: free models fail, the paid route answers', async () => {
+  const free = new Set(Object.values(config.free).flat())
+  const { calls, fetchImpl } = world({
+    jev: { category: { choice: 'code', confidence: 0.9 }, tier: { choice: 'cheap', confidence: 0.9 } },
+    chat: (body) => (free.has(body.model) ? { status: 429, error: { code: 429, message: 'free-models-per-day' } } : { model: body.model, choices: [{ message: { content: 'paid answer' } }], usage: { cost: 0.001 } }),
+  })
+  const result = await completeCascade('fix this bug', { ...CASCADE, fetchImpl, runImpl: noAgents })
+  assert.equal(result.via, 'paid')
+  assert.equal(result.text, 'paid answer')
+  assert.ok(!free.has(calls.at(-1).body.model))
+})
+
+test('default order: a JQ level of 4 lifts the tier to quality, so local and free are skipped', async () => {
+  const { calls, fetchImpl } = world({ ollama: ['qwen3:8b'] })
+  const ran = []
+  const result = await completeCascade('fix this bug', { ...CASCADE, jev: false, category: 'code', jq: 4, fetchImpl, runImpl: async (command) => { ran.push(command); return 'from claude code' } })
+  assert.equal(result.via, 'agent')
+  assert.deepEqual(ran, ['claude'])
+  assert.ok(!calls.some((c) => c.url.includes(':11434')), 'Ollama was not asked')
+  assert.match(result.reason, /code \/ quality · decided by heuristics · JQ 4 · answered via claude/)
+})
+
+test('default order: every step failing says why each one did', async () => {
+  const { fetchImpl } = world({ jev: { category: { choice: 'code', confidence: 0.9 }, tier: { choice: 'cheap', confidence: 0.9 } }, chat: () => ({ status: 500, error: { code: 500, message: 'down' } }) })
+  await assert.rejects(completeCascade('fix this bug', { ...CASCADE, fetchImpl, runImpl: noAgents, retryDelayMs: 0 }), /no step answered: local: .*; codex: .*; free: .*; paid: /)
+})
+
+test('callRecord keeps which step answered and why the others did not', () => {
+  const record = callRecord('hi', {}, { category: 'code', prefer: 'cheap', reason: 'code / cheap · decided by Jev (openrouter) · answered via free', models: ['a'], model: 'a', via: 'free', tried: ['local: Ollama is not running'] }, 5, null)
+  assert.equal(record.via, 'free')
+  assert.equal(record.prefer, 'cheap')
+  assert.deepEqual(record.tried, ['local: Ollama is not running'])
 })

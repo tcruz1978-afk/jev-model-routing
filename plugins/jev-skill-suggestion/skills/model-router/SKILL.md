@@ -22,6 +22,24 @@ answered, so pass that on to the user.
 - Node 18+. Behind an HTTPS proxy (Claude Code on the web), prefix commands with
   `NODE_USE_ENV_PROXY=1`, or Node's `fetch` bypasses the proxy and gets a 403.
 
+## Default order
+
+With no `--local`, `--free`, `--paid` or `--model`, Jev (held to the JQ
+level's bar) decides the kind of task and the tier once, then the prompt goes
+down this order until something answers:
+
+1. **Local**: Ollama on this machine, when it is running.
+2. **Subscriptions**: Claude Code (`claude -p`), Gemini CLI (`gemini -p`) or
+   Codex (`codex exec`), when the route Jev picked names a Claude, Gemini or
+   GPT model and that tool is installed. These run on the owner's own sign-in,
+   already paid for (`agents` in `routes.json`).
+3. **Free**: OpenRouter's free models.
+4. **Paid**: the OpenRouter route for that tier.
+
+A quality tier (Jev's pick, or a JQ level of 4–5) skips local and free. The
+output ends with `answered via <step>`, and a `note: skipped ...` line says why
+each earlier step didn't answer; pass both on. `--paid` goes straight to step 4.
+
 ## Commands
 
 Run from this skill's directory (use its absolute path):

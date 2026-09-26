@@ -337,6 +337,8 @@ export function eventFromLog(raw, host) {
       data: {
         category: record.category,
         prefer: record.prefer,
+        via: record.via,
+        tried: record.tried,
         decidedBy: record.decidedBy,
         requested: record.requested,
         fallbackFrom: record.fallbackFrom,
