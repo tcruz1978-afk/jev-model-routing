@@ -8,6 +8,7 @@ import {
   jevLine,
   jqConfidence,
   jqOutcomeFor,
+  jqMissForNone,
   looksLikeCorrection,
   readRerank,
   readWide,
@@ -179,4 +180,13 @@ test('JQ_LOG=off logs nothing and records no outcome; the pick is still shown', 
   expect((first.context ?? []).join('\n')).toContain('Jev: workflow-design (0.87)')
   await submit('/pdf')
   expect(existsSync(join(home, '.jq'))).toBe(false)
+})
+
+test('a skill typed right after a "none" is a Jev miss (owner rule, 2026-09-26)', () => {
+  const isSkill = (name: string) => ['pdf', 'workflow-design', 'jev-skill-suggestion:model-router'].includes(name) || name === 'model-router'
+  expect(jqMissForNone('/pdf merge these', isSkill)).toEqual({ outcome: 'overruled', answer: 'pdf' })
+  expect(jqMissForNone('/model-router ask gemini', isSkill)).toEqual({ outcome: 'overruled', answer: 'model-router' })
+  expect(jqMissForNone('/clear', isSkill)).toBeNull()
+  expect(jqMissForNone('thanks, carry on', isSkill)).toBeNull()
+  expect(jqMissForNone('/home/user/file.txt is the input', isSkill)).toBeNull()
 })

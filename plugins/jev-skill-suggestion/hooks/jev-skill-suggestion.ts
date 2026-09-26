@@ -139,6 +139,7 @@ import {
   jevUnavailable,
   jqConfidence,
   jqOutcomeFor,
+  jqMissForNone,
   jevLine,
   withJevLine,
 } from './policy.ts'
@@ -310,6 +311,8 @@ export const register: Register = (on, options) => {
   // The last pick the user was shown (the `Jev: …` line), waiting for the
   // next prompt to say what they did about it.
   let shown: { skill: string; jqId: string } | null = null
+  // A logged "none" decision: a skill the user types next is a Jev miss (owner, 2026-09-26).
+  let unpicked: { jqId: string } | null = null
 
   // The previous prompt of the main conversation and the skill it got, sent
   // as Jev's recent_context: "run it on X too" names no skill on its own.
@@ -406,6 +409,23 @@ export const register: Register = (on, options) => {
     // is theirs: a typed `/other-skill` overrules it, a correction says nothing
     // for sure, anything else lets it stand (the JQ rule for "kept": they saw
     // the call and let it stand).
+    if (unpicked && !(e.origin && NOT_A_TASK.has(e.origin.kind)) && e.text.trim()) {
+      const was = unpicked
+      unpicked = null
+      if (/^\/\S/.test(e.text.trim())) {
+        let names: Set<string> | null = null
+        try {
+          names = new Set((await $.command.list()).filter((c) => c.source !== 'builtin').map((c) => c.name))
+        } catch {
+          names = null
+        }
+        const miss = jqMissForNone(e.text, (name) => names !== null && (names.has(name) || [...names].some((n) => n.endsWith(`:${name}`))))
+        if (miss) {
+          const ok = await jqAppend($, outcomeEntry(was.jqId, miss.outcome, { answer: miss.answer, now: await $.clock.now() }))
+          if (ok && logDecisions) $.ui.log(`[jev-skill-suggestion] JQ ${was.jqId}: none overruled (the user ran /${miss.answer})`)
+        }
+      }
+    }
     if (shown && !(e.origin && NOT_A_TASK.has(e.origin.kind)) && e.text.trim()) {
       const was = shown
       shown = null
@@ -700,6 +720,7 @@ export const register: Register = (on, options) => {
     // so what they do next is a verdict on a call they saw.
     const line = pick && jq ? jevLine(pick.name, jq.confidence) : null
     shown = pick && line && jqId ? { skill: pick.name, jqId } : null
+    unpicked = !pick && jqId ? { jqId } : null
     let block: string | null
     if (injectContent && pick) {
       const file = await fileOf(pick, pluginOf.get(pick.name))
@@ -757,6 +778,7 @@ export const register: Register = (on, options) => {
     suggested = null
     previous = null
     shown = null
+    unpicked = null
     return next(e)
   })
   on('session.compact', async ($, e, next) => {

@@ -1278,6 +1278,23 @@ export function looksLikeCorrection(text: string): boolean {
   )
 }
 
+/**
+ * What the user's next prompt says about a "none" decision (Jev suggested no
+ * skill). "None" is never shown, so it can never be "kept"; but by the
+ * owner's rule (2026-09-26) a skill the user types right after it is a Jev
+ * miss: overruled, and the typed skill was right. A typed `/name` that is not
+ * a skill (`/clear`) and anything else record nothing.
+ */
+export function jqMissForNone(
+  nextPrompt: string,
+  isSkill: (name: string) => boolean,
+): { outcome: 'overruled'; answer: string } | null {
+  const typed = /^\/([\w:.-]+)(?:\s|$)/.exec(nextPrompt.trim())
+  if (!typed) return null
+  const name = typed[1] as string
+  return isSkill(name) ? { outcome: 'overruled', answer: name } : null
+}
+
 /** A skill's name without its plugin prefix (`plugin:skill` → `skill`). */
 const bare = (name: string) => name.slice(name.lastIndexOf(':') + 1)
 
@@ -1291,8 +1308,8 @@ const bare = (name: string) => name.slice(name.lastIndexOf(':') + 1)
  * - a typed `/name` that is not a skill (`/clear`, `/model`) → nothing;
  * - otherwise → kept: they saw the pick and let it stand.
  *
- * Only ever called for a pick that was shown; "none" is never shown, so it
- * never gets an outcome here.
+ * Only ever called for a pick that was shown; a "none" is never shown, so
+ * it can't be kept — see `jqMissForNone` for how a "none" can be overruled.
  */
 export function jqOutcomeFor(
   pick: string,
