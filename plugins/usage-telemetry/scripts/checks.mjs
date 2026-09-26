@@ -205,13 +205,33 @@ function checkPicking(cur, prev, ctx, deciding) {
 
 // ---------- check 3: Skills load (target: no refusals) ----------
 
-function skillStats(rows) {
+/**
+ * Skill tool calls, and the failures that count as refusals. Two kinds of
+ * failure are kept apart and do not count: asking for a skill this chat does
+ * not have ('not-installed', a wrong name rather than a block), and blocks in
+ * a chat that started before the fix for them (FIXES.skills; new chats are
+ * fixed; this applies only to failures recorded before the collector
+ * named the cause). `starts` maps a chat to its first event.
+ */
+function skillStats(rows, starts = null) {
   const calls = rows.filter((r) => r.k === 'tool' && r.tl === 'Skill' && r.ok !== null && r.ok !== undefined)
-  return { calls: calls.length, refused: calls.filter((r) => r.ok === false) }
+  const failed = calls.filter((r) => r.ok === false)
+  const notInstalled = failed.filter((r) => r.rf === 'not-installed')
+  // Only failures recorded before the collector named the cause (no rf) can be put down to the old blocks.
+  const beforeFix = failed.filter((r) => !r.rf && (r.t < FIXES.skills || (starts?.get(r.s) ?? Infinity) < FIXES.skills))
+  const refused = failed.filter((r) => !notInstalled.includes(r) && !beforeFix.includes(r))
+  return { calls: calls.length, failed, refused, notInstalled, beforeFix }
+}
+
+/** Each chat's first event. */
+function chatStarts(rows) {
+  const m = new Map()
+  for (const r of rows) if (r.s >= 0 && !(m.get(r.s) <= r.t)) m.set(r.s, r.t)
+  return m
 }
 
 function checkSkills(cur, prev, ctx) {
-  const a = skillStats(cur), b = skillStats(prev)
+  const a = skillStats(cur, ctx.starts), b = skillStats(prev, ctx.starts)
   const base = { id: 'skills', title: 'Skills load', targeted: true, target: 'Lower is better; target: no refusals. One refusal needs attention, whatever the count.', n: a.calls }
   if (!a.calls) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'Claude made no Skill tool calls in the window.', compare: '', lines: [] }
   const counts = new Map()
@@ -219,14 +239,21 @@ function checkSkills(cur, prev, ctx) {
   const rate = a.refused.length / a.calls
   const prate = b.calls ? b.refused.length / b.calls : null
   const lines = []
+  const list = (rs) => {
+    const m = new Map()
+    for (const r of rs) m.set(r.sk ?? 'unnamed', (m.get(r.sk ?? 'unnamed') ?? 0) + 1)
+    return [...m.entries()].sort((x, y) => y[1] - x[1]).map(([s, n]) => (n > 1 ? `${s} ×${n}` : s)).join(', ')
+  }
   if (counts.size) {
-    lines.push('Refused: ' + [...counts.entries()].sort((x, y) => y[1] - x[1]).map(([s, n]) => (n > 1 ? `${s} ×${n}` : s)).join(', '))
+    lines.push('Refused: ' + list(a.refused))
     lines.push('A refusal means Claude was blocked from loading the skill: skillOverrides, or a disabled bundled skill.')
   }
+  if (a.beforeFix.length) lines.push(`Not counted, fixed since: ${list(a.beforeFix)} (blocked in a chat that started before the fix; new chats load them).`)
+  if (a.notInstalled.length) lines.push(`Not counted, not installed in that chat: ${list(a.notInstalled)} (Claude asked for a skill the chat doesn't have).`)
   return {
     ...base,
     state: a.refused.length > TARGETS.maxRefusals ? 'attention' : 'pass',
-    figure: `${n0(a.refused.length)} of ${n0(a.calls)} refused`,
+    figure: `${n0(a.refused.length)} of ${n0(a.calls)} refused${a.failed.length > a.refused.length ? ` (${n0(a.failed.length - a.refused.length)} more not counted)` : ''}`,
     population: 'Skill tool calls Claude made in the window.',
     compare: prevNote(ctx) ?? (prate === null ? `Previous ${span(ctx.days)}: not tracked (no Skill calls)` : `Previous ${span(ctx.days)}: ${n0(b.refused.length)} of ${n0(b.calls)} refused (${pct(prate)}) · ${pp(rate, prate)}`),
     value: rate,
@@ -440,7 +467,7 @@ export function runChecks({ rows, turns = [], generatedAt, days, host = 'all', s
   const w = windowOf(end, days)
   const all = [...rows, ...turns]
   const first = since === null || since === undefined ? (all.length ? Math.min(...all.map((r) => r.t)) : null) : typeof since === 'number' ? since : Date.parse(since)
-  const ctx = { w, days, since: first }
+  const ctx = { w, days, since: first, starts: chatStarts(rows) }
   const scoped = rows.filter((r) => hostMatch(r.h, host))
   const cur = scoped.filter((r) => inside(r.t, w.from, w.to))
   const prev = scoped.filter((r) => inside(r.t, w.prevFrom, w.prevTo))
@@ -503,7 +530,8 @@ function attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end }) {
     prevDecisions: prev.filter((r) => r.k === 'jev.decision').length,
     prevMisses: prev.filter((r) => r.k === 'jev.miss').length,
   }
-  const sk = skillStats(cur), psk = skillStats(prev)
+  const starts = chatStarts(rows)
+  const sk = skillStats(cur, starts), psk = skillStats(prev, starts)
   by.skills.facts = { calls: sk.calls, refused: sk.refused.map((r) => ({ skill: r.sk ?? 'unnamed', t: r.t, s: r.s, chatStart: chatStart(rows, r.s) })), prevCalls: psk.calls, prevRefused: psk.refused.length }
   by.landing.facts = { ...landStats(tcur), prev: landStats(tprev) }
   const ro = routerStats(cur), pro = routerStats(prev)

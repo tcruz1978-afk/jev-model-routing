@@ -275,3 +275,29 @@ test('the benchmark file is read from --tiers and inlined; absent it is null', (
   assert.ok('jevTiers' in data)
   assert.ok(render(data).includes('Not run yet'))
 })
+
+test('skills check: only real blocks count; wrong names and pre-fix blocks are listed apart', async () => {
+  const { skillRefusalOf } = await import('../scripts/lib.mjs')
+  assert.equal(skillRefusalOf([{ type: 'text', text: 'Unknown skill: artifact-design' }]), 'not-installed')
+  assert.equal(skillRefusalOf('Skill dataviz is disabled by skillOverrides'), 'blocked')
+  assert.equal(skillRefusalOf('something else'), 'failed')
+  const fix = Date.parse('2026-09-26T14:16:47Z')
+  const H = 3600000
+  const rows = [
+    { k: 'prompt', t: fix - H, s: 0, a: 'main' }, // an old chat
+    { k: 'tool', t: fix - H + 1, s: 0, tl: 'Skill', sk: 'dataviz', ok: false }, // blocked before the fix, cause not recorded
+    { k: 'tool', t: fix + H, s: 0, tl: 'Skill', sk: 'unlazy', ok: false }, // same old chat, after the fix time, cause not recorded
+    { k: 'tool', t: fix + H, s: 0, tl: 'Skill', sk: 'artifact-design', ok: false, rf: 'not-installed' },
+    { k: 'prompt', t: fix + 2 * H, s: 1, a: 'main' }, // a new chat
+    { k: 'tool', t: fix + 2 * H + 1, s: 1, tl: 'Skill', sk: 'pdf', ok: true },
+  ]
+  const R = runChecks({ rows, turns: [], generatedAt: fix + 3 * H, days: 1 })
+  const c = R.checks.find((x) => x.id === 'skills')
+  assert.equal(c.state, 'pass')
+  assert.equal(c.figure, '0 of 4 refused (3 more not counted)')
+  assert.ok(c.lines.some((l) => l.startsWith('Not counted, fixed since: ')))
+  assert.ok(c.lines.some((l) => l.includes('artifact-design') && l.includes('not installed')))
+  rows.push({ k: 'tool', t: fix + 2 * H + 2, s: 1, tl: 'Skill', sk: 'dataviz', ok: false, rf: 'blocked' })
+  const R2 = runChecks({ rows, turns: [], generatedAt: fix + 3 * H, days: 1 })
+  assert.equal(R2.checks.find((x) => x.id === 'skills').state, 'attention')
+})

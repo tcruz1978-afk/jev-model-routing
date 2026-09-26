@@ -155,6 +155,7 @@ export function compact(events, { days = 180, now = Date.now() } = {}) {
       if (data.offload) row.d.offload = true
     } else if (event.kind === 'tool') {
       if (Number.isFinite(data.ms)) row.ms = data.ms
+      if (data.refusal) row.rf = data.refusal
       if (data.subagent_type) row.st = data.subagent_type
       // A background subagent's tool call returns at once: its time is not how long it ran.
       if (data.subagent_type && data.background) row.bg = 1
