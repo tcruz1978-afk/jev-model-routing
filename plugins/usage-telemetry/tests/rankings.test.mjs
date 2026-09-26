@@ -184,3 +184,35 @@ test('contribution: each part as KPIs, the three together, and spend nothing exp
   assert.ok(Math.abs(Q.total.unexplained - 0.25) < 1e-9)
   assert.ok(Math.abs(Q.total.net + 0.75) < 1e-9, 'cost with no measured saving is a negative net')
 })
+
+test('the on/off comparison: each part against the same work without it, and all together', async () => {
+  const { comparison } = await import('../scripts/rankings.mjs')
+  const ev = []
+  // Three chats, one per group, 12 requests each; "Neither" lands 9, the others 11.
+  const groups = [['on', 'son'], ['no-router', 'sjev'], ['off', 'soff']]
+  groups.forEach(([arm, s], g) => {
+    ev.push({ id: `arm${g}`, kind: 'jev.arm', ts: at(1000), session: s, host: 'cloud', data: { arm } })
+    for (let i = 0; i < 13; i++) {
+      const t = 900 - i * 30
+      ev.push({ id: `${s}p${i}`, kind: 'prompt', ts: at(t), session: s, host: 'cloud', agent: 'main', data: { category: 'fix', correction: arm === 'off' ? i % 4 === 1 : i === 5 } })
+      ev.push({ id: `${s}a${i}`, kind: 'api', ts: at(t - 1), session: s, host: 'cloud', agent: 'main', model: 'claude-opus-5-5', cost_usd: arm === 'off' ? 2 : 1 })
+      if (arm !== 'off') ev.push({ id: `${s}d${i}`, kind: 'jev.decision', ts: at(t), session: s, host: 'cloud', skill: 'pdf', cost_usd: 0.1, data: { decidedBy: 'jev' } })
+    }
+  })
+  ev.push({ id: 'r1', kind: 'router.call', ts: at(20), session: 'son', host: 'cloud', model: 'z/free', cost_usd: 0, ok: true, data: { offload: true, ms: 800 } })
+  const P = compact(ev, { now: END })
+  const C = comparison({ rows: P.rows, cur: P.rows, tcur: P.turns })
+  assert.equal(C.tracked, true)
+  assert.deepEqual([C.groups.on.requests, C.groups.on.byRouter, C.groups['no-router'].requests, C.groups.off.requests], [14, 1, 13, 13], 'a router answer is a request of the "on" group')
+  assert.deepEqual([C.groups.on.known, C.groups.off.known], [12, 12], "each chat's last request has no outcome yet")
+  assert.equal(C.groups['no-router'].cost, 1.1, 'Claude plus the Jev decision')
+  assert.equal(C.groups.off.cost, 2)
+  assert.ok(Math.abs(C.jev.costDiff + 0.9) < 1e-9, 'Jev: 90 cents less per request than neither')
+  assert.ok(C.jev.landDiff > 0, 'and more landed')
+  assert.equal(C.jev.thin, false)
+  assert.equal(C.router.costDiff, 1.1 - 1.1)
+  assert.ok(C.total.costDiff < 0)
+  const none = comparison({ rows: [], cur: [], tcur: [] })
+  assert.equal(none.tracked, false)
+  assert.equal(none.total.thin, true)
+})

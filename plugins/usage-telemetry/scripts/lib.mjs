@@ -315,6 +315,9 @@ export function eventFromLog(raw, host) {
       },
     })
   }
+  if (record.kind === 'jev.arm' && ['on', 'no-router', 'off'].includes(record.arm)) {
+    return base({ id: `jevarm:${record.session}`, kind: 'jev.arm', ...common, data: { arm: record.arm, shares: record.shares ?? null } })
+  }
   if (record.kind === 'jev.skill_load') {
     return base({
       id: `jevload:${record.session}:${record.ts}:${record.skill}`,
@@ -343,6 +346,7 @@ export function eventFromLog(raw, host) {
         decidedBy: record.decidedBy,
         requested: record.requested,
         fallbackFrom: record.fallbackFrom,
+        offload: Boolean(record.offload),
         outOfCredit: record.outOfCredit,
         truncated: record.truncated,
         ms: record.ms,

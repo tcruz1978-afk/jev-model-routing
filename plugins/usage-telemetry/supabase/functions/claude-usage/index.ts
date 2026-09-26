@@ -11,7 +11,7 @@ import postgres from 'npm:postgres@3.4.5'
 
 const sql = postgres(Deno.env.get('SUPABASE_DB_URL')!, { max: 3, prepare: false })
 
-const KINDS = new Set(['api', 'tool', 'prompt', 'jev.suggested', 'jev.decision', 'jev.skill_load', 'router.call', 'openrouter.key', 'jev.miss', 'jq.decision', 'jq.outcome'])
+const KINDS = new Set(['api', 'tool', 'prompt', 'jev.suggested', 'jev.decision', 'jev.skill_load', 'router.call', 'openrouter.key', 'jev.miss', 'jq.decision', 'jq.outcome', 'jev.arm'])
 const TEXT = ['session', 'host', 'project', 'agent', 'model', 'tool', 'skill', 'mcp_server'] as const
 const INTS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens'] as const
 

@@ -385,6 +385,9 @@ td .bad { color: var(--bad); font-weight: 600; }
       <div class="tiles" id="rk-contrib-total"></div>
       <div id="rk-contrib-notices" style="margin-top:12px"></div>
       <div class="tbox" id="rk-contrib"></div>
+      <h3 style="margin-top:18px">On/off comparison</h3>
+      <p class="note" id="rk-ab-note"></p>
+      <div class="tbox" id="rk-ab"></div>
     </section>
   </section>
 
@@ -1287,11 +1290,17 @@ function rankingsTab(C) {
   // 5. Contribution: each part as KPIs, and the three together.
   const CB = contribution({ rows: DATA.rows, cur, tcur, from: P.from, to: P.to, rates: DATA.rates ?? {} });
   const Jv = CB.jev, Rt = CB.router, Q = CB.jq, Tt = CB.total;
-  const judged = Tt.judged && !Tt.jevCostMissing;
-  $('rk-eff-note').textContent = `Cost is what was measured; savings are what can be measured today. Jev's and JQ's benefit needs an on/off comparison, so "with against without" below is not a fair test yet. ${words.cur.charAt(0).toUpperCase() + words.cur.slice(1)}.`;
+  const AB = comparison({ rows: DATA.rows, cur, tcur });
+  const fairAll = AB.tracked && !AB.total.thin && AB.total.costDiff !== null;
+  const judged = fairAll || (Tt.judged && !Tt.jevCostMissing);
+  $('rk-eff-note').textContent = fairAll
+    ? `Cost is what was measured. Net contribution comes from the on/off comparison below: the same kind of work with and without them. ${words.cur.charAt(0).toUpperCase() + words.cur.slice(1)}.`
+    : `Cost is what was measured; savings are what can be measured so far. Until the on/off comparison below has enough requests, "with against without" is not a fair test. ${words.cur.charAt(0).toUpperCase() + words.cur.slice(1)}.`;
   const tileHtml = (t) => `<div class="tile${t.warn ? ' warn' : ''}"><div class="lab">${esc(t.lab)}</div><div class="big">${esc(t.big)}</div>${t.ds.map((d) => `<div class="ds">${d}</div>`).join('')}</div>`;
   $('rk-contrib-total').innerHTML = [
-    { lab: 'Net contribution, all three', big: (Tt.net >= 0 ? '+' : '−') + usd(Math.abs(Tt.net)), ds: [judged ? 'Measured savings less measured cost.' : "<b class=\"warn\">Can't be judged yet:</b> too little data, and Jev's savings aren't measured."] },
+    fairAll
+      ? { lab: 'Net contribution, all three', big: (AB.total.costDiff <= 0 ? '+' : '−') + usd(Math.abs(AB.total.costDiff) * AB.groups.on.requests), ds: [`<b class="${AB.total.costDiff <= 0 ? 'good' : 'warn'}">${esc(usd(Math.abs(AB.total.costDiff)))} ${AB.total.costDiff <= 0 ? 'less' : 'more'}</b> per request than with neither, over ${esc(plural(AB.groups.on.requests, 'request'))}.`, `Landed: <b>${esc(AB.total.landDiff === null ? '—' : `${AB.total.landDiff >= 0 ? '+' : '−'}${Math.abs(Math.round(AB.total.landDiff * 100))} pts`)}</b> against neither.`] }
+      : { lab: 'Net contribution, all three', big: (Tt.net >= 0 ? '+' : '−') + usd(Math.abs(Tt.net)), ds: ["<b class=\"warn\">Can't be judged yet:</b> the on/off comparison doesn't have enough requests, so this is measured savings less measured cost only."] },
     { lab: 'Measured cost', big: usd(Tt.cost), ds: [`Jev: <b>${Jv.cost === null ? 'not reported yet' : esc(usd(Jv.cost))}</b> · router: <b>${esc(usd(Rt.cost))}</b> · JQ: <b>$0</b>`] },
     { lab: 'Measured savings', big: usd(Tt.saved), ds: [`The router, against the same tokens on ${esc(Rt.reference ? modelName(Rt.reference) : 'Claude')} at pay-as-you-go prices.`] },
     { lab: 'Requests they touched', big: Tt.share === null ? '—' : pct(Tt.share), ds: [`${esc(n0(Tt.touched))} of ${esc(plural(Tt.requests, 'request'))} had a Jev decision or a routed call.`] },
@@ -1319,7 +1328,31 @@ function rankingsTab(C) {
     ['Typical cost per request, with vs without', `${esc(usd(Jv.with.cost))} <span class="muted">vs</span> ${esc(usd(Jv.without.cost))}`, '<span class="muted">—</span>', '<span class="muted">—</span>'],
     ['Calibration', '<span class="muted">—</span>', '<span class="muted">—</span>', Q.calibration === null ? '<span class="muted">no outcomes yet</span>' : `${Q.calibration > 0 ? 'over' : 'under'}-sure by ${esc(pct(Math.abs(Q.calibration)))}`],
     ['Verdict', state(verdictOf(Jv.thin || Jv.cost === null, true, -(Jv.cost ?? 0))), state(verdictOf(Rt.thin, true, Rt.saved - Rt.cost)), state(verdictOf(Q.thin, Q.tracked, 0))],
+    // (the Jev and router verdicts are replaced by the on/off comparison's once it can judge them)
   ];
+  // The on/off comparison: each part against the same work without it.
+  $('rk-ab-note').textContent = AB.tracked
+    ? `Each chat session is put in one group at random and stays in it: Jev and the router (most sessions), Jev without the router, or neither. Comparing groups gives each part's effect on the same kind of work. A side needs 10 requests with an outcome before it's judged. JQ only measures, so it has no group of its own.`
+    : 'Starts with the next chat sessions after Jev 0.5.2 is installed: each session goes into one of three groups (Jev and the router, Jev without the router, or neither), and this table fills in as they run.';
+  const pp2 = (d) => (d === null ? '—' : `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(Math.round(d * 100))} pts`);
+  const money2 = (d) => (d === null ? '—' : `${d < 0 ? usd(-d) + ' less' : d > 0 ? usd(d) + ' more' : 'no change'}`);
+  const time2 = (d) => (d === null ? '—' : Math.abs(d) < 500 ? 'no change' : `${durText(Math.abs(d))} ${d < 0 ? 'faster' : 'slower'}`);
+  const verdictAB = (x) => {
+    if (!AB.tracked) return state('not started');
+    if (x.thin) return state('too few to judge');
+    const better = (x.landDiff ?? 0) >= 0 && (x.costDiff ?? 0) <= 0, worse = (x.landDiff ?? 0) <= 0 && (x.costDiff ?? 0) >= 0;
+    if ((x.landDiff ?? 0) === 0 && (x.costDiff ?? 0) === 0) return state('even');
+    return state(better ? 'saving' : worse ? 'costing' : 'mixed');
+  };
+  const side = (g) => `${esc(n0(g.requests))} request${g.requests === 1 ? '' : 's'}${g.byRouter ? ` (${esc(n0(g.byRouter))} answered by the router)` : ''} · ${g.known ? `${esc(n0(g.landed))} of ${esc(n0(g.known))} landed` : 'no outcomes'}`;
+  $('rk-ab').innerHTML = `<table><thead><tr><th scope="col">Part</th><th scope="col" class="l">Compared</th><th scope="col">Landed</th><th scope="col">Typical cost per request</th><th scope="col">Typical time</th><th scope="col" class="l">Verdict</th></tr></thead><tbody>` +
+    [['Jev', AB.jev], ['Model router', AB.router], ['All together', AB.total]].map(([name, x]) =>
+      `<tr><td class="nm"><b>${esc(name)}</b></td><td class="l" style="white-space:normal"><b>${esc(x.with.label)}</b>: ${side(x.with)}<br><span class="muted">against</span> <b>${esc(x.without.label)}</b>: ${side(x.without)}</td>` +
+      `<td>${esc(pp2(x.landDiff))}</td><td>${esc(money2(x.costDiff))}</td><td>${esc(time2(x.timeDiff))}</td><td class="l">${verdictAB(x)}</td></tr>`).join('') + '</tbody></table>';
+  if (AB.tracked && !AB.jev.thin && AB.jev.costDiff !== null) rowsK[2][1] = `<span class="${AB.jev.costDiff < 0 ? 'good' : 'bad'}">${esc(money2(AB.jev.costDiff))}</span> <span class="muted">per request, against neither</span>`;
+  if (AB.tracked && !AB.jev.thin) rowsK[8][1] = verdictAB(AB.jev);
+  if (AB.tracked && !AB.router.thin) rowsK[8][2] = verdictAB(AB.router);
+  if (AB.tracked && !AB.jev.thin) rowsK[5][1] = `${esc(pp2(AB.jev.landDiff))} <span class="muted">landed, against neither (fair test)</span>`;
   $('rk-contrib').innerHTML = `<table><thead><tr><th scope="col">KPI</th><th scope="col" class="l">Jev</th><th scope="col" class="l">Model router</th><th scope="col" class="l">JQ</th></tr></thead><tbody>` +
     rowsK.map((r) => `<tr><td class="nm"><b>${esc(r[0])}</b></td>${r.slice(1).map((c) => `<td class="l" style="white-space:normal">${c}</td>`).join('')}</tr>`).join('') + '</tbody></table>';
 }

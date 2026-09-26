@@ -1174,6 +1174,42 @@ export interface DecisionRecord {
   costUsd?: number | null
 }
 
+/**
+ * The on/off comparison: each session is put in one group, the same one every
+ * time for that session. `on`: Jev and the model router as usual.
+ * `no-router`: Jev picks skills, the router answers nothing. `off`: neither
+ * runs and the skill listing is left as Claude Code sends it. Comparing the
+ * groups gives each part's contribution and the two together.
+ */
+export type Arm = 'on' | 'no-router' | 'off'
+export interface ArmShares {
+  off: number
+  noRouter: number
+}
+export const DEFAULT_ARM_SHARES: ArmShares = { off: 0.2, noRouter: 0.2 }
+
+/** The session's group: a hash of its id (FNV-1a) against the shares. Shares are clamped to 0..1 and to 1 in total. */
+export function armOf(sessionId: string, shares: ArmShares = DEFAULT_ARM_SHARES): Arm {
+  const off = Math.min(1, Math.max(0, Number.isFinite(shares.off) ? shares.off : 0))
+  const noRouter = Math.min(1 - off, Math.max(0, Number.isFinite(shares.noRouter) ? shares.noRouter : 0))
+  let h = 0x811c9dc5
+  for (let i = 0; i < sessionId.length; i++) {
+    h ^= sessionId.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  const u = h / 0x100000000
+  return u < off ? 'off' : u < off + noRouter ? 'no-router' : 'on'
+}
+
+/** Which group a session is in, logged once per session for the usage dashboard. */
+export interface ArmRecord {
+  kind: 'jev.arm'
+  ts: string
+  session: string
+  arm: Arm
+  shares: ArmShares
+}
+
 /** A skill the model loaded, and whether it was the one suggested. */
 export interface SkillLoadRecord {
   kind: 'jev.skill_load'
@@ -1184,10 +1220,10 @@ export interface SkillLoadRecord {
   asSuggested: boolean
 }
 
-export type LogRecord = DecisionRecord | SkillLoadRecord
+export type LogRecord = DecisionRecord | SkillLoadRecord | ArmRecord
 
 /** A record before the hook stamps its time and session. */
-export type UnstampedRecord = Omit<DecisionRecord, 'ts' | 'session'> | Omit<SkillLoadRecord, 'ts' | 'session'>
+export type UnstampedRecord = Omit<DecisionRecord, 'ts' | 'session'> | Omit<SkillLoadRecord, 'ts' | 'session'> | Omit<ArmRecord, 'ts' | 'session'>
 
 /** Where a session's decision log lives: one JSONL file per session. */
 export function decisionLogPath(home: string, session: string): string {
