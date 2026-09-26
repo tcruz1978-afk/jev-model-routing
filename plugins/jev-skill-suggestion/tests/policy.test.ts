@@ -64,6 +64,7 @@ import {
   offloadShown,
   readRoute,
   routeQuestions,
+  skippedDecision,
 } from '../hooks/policy.ts'
 import type { Candidate, PolicyConfig, Skill, Wide } from '../hooks/policy.ts'
 
@@ -701,4 +702,13 @@ test('the hooks module declares every helper that takes $ at the top of the file
   const source = await Bun.file(new URL('../hooks/jev-skill-suggestion.ts', import.meta.url)).text()
   const nested = source.split('\n').filter((line) => /^\s+(const|let)\s+\w+\s*=\s*async\s*\(\s*\$\s*[:,)]/.test(line))
   expect(nested).toEqual([])
+})
+
+test('a prompt Jev could not decide on still leaves a decision line, with the reason', () => {
+  const r = skippedDecision('hello there', 0, 'no candidate skills')
+  expect(r.kind).toBe('jev.decision')
+  expect(r.decidedBy).toBe('skipped')
+  expect(r.pick).toBeNull()
+  expect(r.reason).toBe('no candidate skills')
+  expect(r.promptChars).toBe(11)
 })

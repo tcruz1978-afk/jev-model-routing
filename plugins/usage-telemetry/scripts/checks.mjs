@@ -154,6 +154,7 @@ export function decidingStats(rows, all = rows, fixes = FIXES) {
     picked: by((r) => r.sk),
     byJev: by((r) => r.d?.decidedBy === 'jev'),
     byBackup: by((r) => String(r.d?.decidedBy ?? '').startsWith('backup')),
+    skipped: by((r) => r.d?.decidedBy === 'skipped'),
     unmatched: unmatched.length,
     lastPrompt: last(prompts),
     lastDecision,
@@ -188,7 +189,7 @@ function checkDeciding(cur, prev, ctx) {
     `Last prompt ${fmtTime(a.lastPrompt)} · last decision ${a.lastDecision === null ? 'none in the window' : fmtTime(a.lastDecision)}${behind > TARGETS.matchMs ? ` (${ago(behind)} behind)` : ''}`,
   ]
   if (a.quiet) lines.push(`${plural(a.afterLast, 'prompt')} came after the last logged decision: the decision log has gone quiet`)
-  if (a.decisions) lines.push(`${n0(a.picked)} of ${plural(a.decisions, 'Jev decision')} picked a skill · ${n0(a.byJev)} decided by Jev, ${n0(a.byBackup)} by the backup model, ${n0(a.decisions - a.byJev - a.byBackup)} by the built-in picker`)
+  if (a.decisions) lines.push(`${n0(a.picked)} of ${plural(a.decisions, 'Jev decision')} picked a skill · ${n0(a.byJev)} decided by Jev, ${n0(a.byBackup)} by the backup model, ${n0(a.decisions - a.byJev - a.byBackup - a.skipped)} by the built-in picker${a.skipped ? `, ${n0(a.skipped)} skipped (no skills to choose from)` : ''}`)
   if (a.unmatched) lines.push(`${plural(a.unmatched, 'Jev suggestion')} seen in transcripts with no logged decision: Jev ran, the decision log did not record it`)
   if (a.left.old) lines.push(`Not counted: ${plural(a.left.old, 'prompt')} in ${plural(a.leftChats.old, 'chat')} started before Jev kept a log (an older Jev; new chats log every pick).`)
   if (a.left.none) lines.push(`Not counted: ${plural(a.left.none, 'prompt')} in ${plural(a.leftChats.none, 'chat')} where Jev never logged anything (Jev not loaded there, or a one-off chat).`)
