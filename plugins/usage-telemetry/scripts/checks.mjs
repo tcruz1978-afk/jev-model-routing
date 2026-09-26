@@ -745,12 +745,13 @@ export function attribute(rows) {
   }
   for (const list of bySession.values()) {
     list.sort((a, b) => a.t - b.t)
-    const injected = list.filter((r) => r.k === 'jev.decision' && r.sk && r.d?.injected)
+    // Every skill Jev picked counts as active for its turn (owner, 2026-09-26), shown or not.
+    const picks = list.filter((r) => r.k === 'jev.decision' && r.sk)
     const active = new Map()
     for (const r of list) {
       if (isPrompt(r)) {
         active.clear()
-        const jev = injected.filter((d) => Math.abs(d.t - r.t) <= TARGETS.matchMs).sort((a, b) => Math.abs(a.t - r.t) - Math.abs(b.t - r.t))[0]
+        const jev = picks.filter((d) => Math.abs(d.t - r.t) <= TARGETS.matchMs).sort((a, b) => Math.abs(a.t - r.t) - Math.abs(b.t - r.t))[0]
         const start = r.sk ?? jev?.sk ?? null
         if (start) active.set('main', start)
       } else if (r.k === 'tool' && r.tl === 'Skill' && r.sk && r.ok !== false) {
@@ -931,7 +932,7 @@ const medianDur = (turns) => median(turns.map((t) => t.dur))
 
 /**
  * Where the work went, by skill: uses (Skill tool calls, typed /commands
- * and Jev picks whose text Jev put into the chat), refused uses, the Claude cost of the model calls made while it
+ * and every skill Jev picked), refused uses, the Claude cost of the model calls made while it
  * was active (see attribute), and the typical length of the requests it was
  * active in. Model calls with no active skill form the "no skill" row
  * (skill null), whose uses are the requests with no skill.
@@ -945,7 +946,7 @@ export function workBySkill(cur, turns) {
       e.uses++
       if (r.ok === false) e.failed++
     } else if (isPrompt(r) && r.sk) get(r.sk).uses++
-    else if (r.k === 'jev.decision' && r.sk && r.d?.injected) get(r.sk).uses++
+    else if (r.k === 'jev.decision' && r.sk) get(r.sk).uses++
     else if (r.k === 'api') {
       const e = get(r.as ?? null)
       e.calls++
