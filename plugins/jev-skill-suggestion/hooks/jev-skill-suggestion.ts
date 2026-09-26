@@ -150,6 +150,7 @@ import {
   offloadShown,
   readRoute,
   FOR_CLAUDE,
+  skippedDecision,
 } from './policy.ts'
 import { SHARED_DIR, appendLine, decisionEntry, jqLogPath, outcomeEntry } from '../skills/model-router/scripts/jq-log.mjs'
 import type { Arm, Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Route, Skill, Wide } from './policy.ts'
@@ -692,6 +693,7 @@ export const register: Register = (on, options) => {
       commands = canonical(commands, displayToId ?? new Map())
     } catch (error) {
       $.ui.log(`[jev-skill-suggestion] could not list the skills: ${String(error)}`)
+      await record($, skippedDecision(e.text, 0, `could not list the skills: ${String(error).slice(0, 120)}`), logDecisions)
       return next(toClaude(e))
     }
     // Loading the skill itself, the mod is not bound to what the engine would
@@ -699,6 +701,7 @@ export const register: Register = (on, options) => {
     const skills = catalog(commands, injectContent ? new Set() : listed, neverSuggested)
     if (skills.length === 0) {
       if (logDecisions) $.ui.log('[jev-skill-suggestion] no candidate skills; nothing to suggest')
+      await record($, skippedDecision(e.text, 0, 'no candidate skills'), logDecisions)
       return next(toClaude(e))
     }
     const pluginOf = new Map(commands.map((command) => [command.name, command.plugin]))

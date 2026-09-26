@@ -1145,6 +1145,34 @@ export function describeStillListed(count: number): string {
  * One prompt's decision as the decision log keeps it, for the usage
  * dashboard. The prompt's text is never stored, only its length.
  */
+/**
+ * The decision record for a prompt Jev saw but could not decide on (the
+ * skills could not be listed, or none were candidates): logged all the same,
+ * so every prompt Jev handles leaves a line and a gap has a reason.
+ */
+export function skippedDecision(prompt: string, candidates: number, reason: string): Omit<DecisionRecord, 'ts' | 'session'> {
+  return {
+    kind: 'jev.decision',
+    decidedBy: 'skipped',
+    provider: null,
+    via: 'none',
+    model: null,
+    promptChars: prompt.length,
+    withContext: false,
+    candidates,
+    gate: null,
+    top: [],
+    rerank: null,
+    pick: null,
+    reason,
+    wideMs: null,
+    rerankMs: null,
+    injected: false,
+    jqId: null,
+    costUsd: null,
+  }
+}
+
 export interface DecisionRecord {
   kind: 'jev.decision'
   ts: string
