@@ -47,7 +47,8 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
    - `previous-page-unreadable`: the page being replaced has no readable DATA;
    - `missing-key`: DATA lacks a key the page reads;
    - `headline-zero`: prompts, decisions, model calls or turns (7 days) came
-     back 0 when the previous build had them;
+     back 0 when the previous build had them, or there were model calls but
+     Claude cost came back $0 or missing (a broken price table);
    - `cost-5x`: Claude cost for the last 24 h moved more than 5x.
    A trip means a broken pull, not a bad week: find the cause (usually an
    empty or truncated export) and rebuild. Only add `--force` when the owner
@@ -63,31 +64,44 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
 All arithmetic is in `scripts/checks.mjs` (inlined into the page, tested by
 `tests/lib.test.mjs`). Ranges run back from the build time, never from when
 the page is opened; a page opened more than 26 h after its build shows an
-"Out of date" banner, greys every section, and turns the verdict grey. The
-headline is "Is everything working?": seven checks, each pass, needs
-attention, not tracked (no data, never green) or too few to judge (a rate
-over fewer than 10):
+"Out of date" banner, greys every section, and turns the verdict grey.
 
-1. Jev is deciding: prompts with a logged `jev.decision` within 2 min, of
-   prompts sent. Attention at more than 2 gaps, or the last decision more
-   than 10 min behind the last prompt. Also counts `jev.suggested` with no
-   matching decision (the log missed it).
-2. Jev is picking right: `jev.miss` over `jev.decision`; target ≤ 10%.
-3. Skills load: refused Skill tool calls over Skill tool calls; any refusal
-   needs attention.
-4. Answers land: landed turns over turns with an outcome; target ≥ 80%.
-5. Model router: errors plus fallbacks over routed calls; target ≤ 10%.
-6. OpenRouter credit: credit and key limit left from the newest
-   `openrouter.key` (account-wide, not filtered), attention under 10%. Its
-   spend line is the key's own usage for the range's UTC day, week or month,
-   reconciled as: key usage = routed calls (logged cost) + Jev decisions
-   (cost not logged: not tracked) + unattributed. The routed calls' logged
-   cost is never shown as OpenRouter spend.
-7. Reporting: hosts with events in the window; a host that reported in the
-   previous window and not this one needs attention.
+Coverage: the window line prints "Data since <first event>". A range longer
+than the data says how much it holds ("only 72 min of data") and its button
+is dotted-underlined. A previous window that starts before the first event
+is "not tracked (collection began …)", never "none", in the checks and in
+every table.
+
+The headline is "Is everything working?": seven checks, each Pass, Needs
+attention, Not tracked (no data, never green), Too few to judge (a rate over
+fewer than 10) or Partial (its data stopped early). The owner's targets,
+approved 2026-09-26, are the only source of colour:
+
+1. Jev is deciding: ≥ 95% of your prompts get a logged `jev.decision`
+   within 2 min. The last decision's lag behind the last prompt and
+   `jev.suggested` with no matching decision are stated as facts.
+2. Jev is picking right: `jev.miss` over every logged `jev.decision`
+   (including ones not tied to a prompt) ≤ 10%. It states the span the
+   decisions cover and goes Partial when prompts came after the last one.
+3. Skills load: no refused Skill tool calls.
+4. Answers land: ≥ 80% of turns with an outcome.
+5. Model router: ≤ 10% of routed calls error or fall back.
+6. OpenRouter credit: attention under 10% of credit or key limit left
+   (account-wide; left out of the verdict under a host filter). Its spend
+   line is the key's own usage for the range's UTC day, week or month, with
+   `key usage = routed calls (logged) + unattributed`; Jev's decision calls
+   are stated separately as not logged. A key period that began before
+   collection is "not reconcilable". The routed calls' logged cost is never
+   shown as OpenRouter spend.
+7. Reporting: every host that reported in the previous window reports in
+   this one; not tracked when the previous window has no hosts.
+
+Plus the tools table: no tool fails more than 10% of its calls (coloured
+from 10 calls).
 
 Claude cost is API-equivalent (list prices in `scripts/prices.json`, dated
-in its `_source`), not a bill, and is never added to OpenRouter spend.
+in its `_source`), not a bill, and is never added to OpenRouter spend. Turns
+whose model calls had no price have no cost and stay out of the median.
 
 ## Reporting back
 

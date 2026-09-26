@@ -57,7 +57,8 @@ h2 { font-size: 16px; margin: 0 0 4px; }
 .check.pass .badge { color: var(--good); } .check.attention .badge { color: var(--bad); }
 .fig { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .check.attention .fig { color: var(--bad); }
-.check.untracked .fig, .check.thin .fig, .check.stale .fig { color: var(--na); }
+.check.untracked .fig, .check.thin .fig, .check.partial .fig, .check.stale .fig { color: var(--na); }
+.seg button.short { text-decoration: underline dotted; text-underline-offset: 3px; }
 .check p { margin: 0 0 3px; font-size: 13px; }
 .check .muted, .muted { color: var(--muted); }
 .check ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
@@ -154,7 +155,8 @@ const END = Date.parse(DATA.generatedAt);
 let host = 'all', days = 7;
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const STATE_LABEL = { pass: 'Pass', attention: 'Needs attention', untracked: 'Not tracked', thin: 'Too few to judge', stale: 'As of build' };
+const STATE_LABEL = { pass: 'Pass', attention: 'Needs attention', untracked: 'Not tracked', thin: 'Too few to judge', partial: 'Partial', neutral: 'No target set', stale: 'As of build' };
+const SINCE = DATA.firstEventAt ? Date.parse(DATA.firstEventAt) : null;
 const HOST_NAME = { all: 'all hosts', cloud: 'cloud only', local: 'local machines only' };
 const hostsEver = [...new Set(DATA.rows.map((r) => r.h))];
 const hasHost = (h) => hostsEver.some((x) => hostMatch(x, h));
@@ -173,15 +175,23 @@ function render() {
     b.textContent = v !== 'all' && !hasHost(v) ? base + ' · none' : base;
   }
 
-  const R = runChecks({ rows: DATA.rows, turns: DATA.turns, generatedAt: END, days, host });
+  for (const b of document.querySelectorAll('#range button')) {
+    const d = Number(b.dataset.v), short = SINCE === null || SINCE > END - d * DAY;
+    b.classList.toggle('short', short);
+    b.title = short ? (SINCE === null ? 'No data' : `Only ${ago(END - SINCE)} of data: collection began ${fmtTime(SINCE)}`) : '';
+  }
+  const R = runChecks({ rows: DATA.rows, turns: DATA.turns, generatedAt: END, days, host, since: SINCE });
   const v = R.verdict;
   const vEl = document.getElementById('verdict');
   vEl.className = 'verdict ' + (stale ? 'stale' : v.state);
   vEl.innerHTML = stale
-    ? `<span class="dot"></span><div><b>Out of date</b><br><span>As of the build (${esc(fmtTime(END))}): ${esc(v.text.replace('need ', 'needed ').replace('checks passing', 'checks were passing').replace('can be judged', 'could be judged'))}${v.tail ? ' · ' + esc(v.tail) : ''}</span></div>`
+    ? `<span class="dot"></span><div><b>Out of date</b><br><span>As of the build (${esc(fmtTime(END))}): ${esc(v.text)}${v.tail ? ' · ' + esc(v.tail) : ''}</span></div>`
     : `<span class="dot"></span><div><b>${esc(v.text)}</b>${v.tail ? `<br><span>${esc(v.tail)}</span>` : ''}</div>`;
   const noHost = host !== 'all' && !hasHost(host) ? ` ${host === 'local' ? 'Local: not tracked. No local machine has reported.' : 'Cloud: not tracked. No cloud session has reported.'}` : '';
-  document.getElementById('window').textContent = `Window: the ${span(days)} to ${fmtTime(END)} (the build time), ${HOST_NAME[host]}, each compared with the ${span(days)} before.${noHost}`;
+  const cov = R.coverage;
+  const covText = SINCE === null ? ' No data yet.' : ` Data since ${fmtTime(SINCE)}${cov.partial ? `: only ${ago(cov.covered)} of data in this ${span(days)} range` : ''}.`;
+  const acct = host !== 'all' ? ' The verdict leaves out the account-wide OpenRouter check, which a host filter cannot apply to.' : '';
+  document.getElementById('window').textContent = `Window: the ${span(days)} to ${fmtTime(END)} (the build time), ${HOST_NAME[host]}, each compared with the ${span(days)} before.${covText}${noHost}${acct}`;
   document.getElementById('checks').innerHTML = R.checks.map((c) => {
     const st = stale ? 'stale' : c.state;
     return `<li class="check ${st}">
@@ -190,8 +200,9 @@ function render() {
       <div><p>${esc(c.population)}</p>${c.compare ? `<p class="muted">${esc(c.compare)}</p>` : ''}${c.lines.length ? '<ul>' + c.lines.map((l) => `<li>${esc(l)}</li>`).join('') + '</ul>' : ''}<p class="muted">${esc(c.target)}</p></div>
     </li>`;
   }).join('');
-  document.getElementById('targets').textContent =
-    `Colour comes only from these targets: green meets it, red misses it, grey is not tracked (no data) or too few to judge (a rate over fewer than ${TARGETS.minN}). A check with no data is never green.`;
+  document.getElementById('targets').innerHTML =
+    `The owner's targets (approved ${esc(TARGETS_APPROVED)}), the only source of colour: green meets one, red misses it, grey is not tracked (no data), too few to judge (a rate over fewer than ${TARGETS.minN}) or partial. A check with no data is never green.<br>` +
+    TARGET_NOTES.map((t) => esc(t)).join(' · ');
 
   trend(R);
   work(R);
@@ -204,15 +215,17 @@ function render() {
     `<p>Built ${esc(fmtTime(END))} by the usage-telemetry plugin (<code>tcruz1978-afk/jev-model-routing</code>). Prompt text and tool inputs are never recorded.</p>`;
 }
 
+const priced = (ts) => ts.filter((t) => Number.isFinite(t.c)).length;
+
 function trend(R) {
   const el = document.getElementById('trend');
   const B = trendBuckets(R.tcur, R.window);
-  const word = B.size < DAY ? '4 hours' : B.size === DAY ? 'day' : 'week';
+  const word = B.size < DAY ? '4-hour block' : B.size === DAY ? 'day' : 'week';
   document.getElementById('bucketword').textContent = word;
   const now = median(R.tcur.map((t) => t.c)), before = median(R.tprev.map((t) => t.c));
   const land = landStats(R.tcur);
   const costLine = R.tcur.length
-    ? `Median Claude cost per turn: ${usd(now)} (n = ${n0(R.tcur.length)} turns) · previous ${span(days)} ${before === null ? 'not tracked' : `${usd(before)} (n = ${n0(R.tprev.length)}) · ${change(now, before)}`}. API-equivalent; no target set.`
+    ? `Median Claude cost per turn: ${usd(now)} (n = ${n0(priced(R.tcur))} priced turns) · ${R.prevNote ?? (before === null ? `previous ${span(days)}: not tracked` : `previous ${span(days)} ${usd(before)} (n = ${n0(priced(R.tprev))}) · ${change(now, before)}`)}. API-equivalent; no target set.`
     : '';
   if (B.withData < 2) {
     el.innerHTML = `<p class="empty">${esc(R.tcur.length
@@ -226,7 +239,7 @@ function trend(R) {
     `<p class="note end">${esc(costLine)}</p>`;
   const label = (b) => (B.size < DAY ? new Date(b.to).toLocaleTimeString('en-US', { hour: 'numeric' }) : fmtDate(b.to - 1));
   chart('c-land', B.buckets, (b) => b.rate, (b) => b.known, (x) => pct(x), 1, TARGETS.landRate, label, 'Landed percent per bucket');
-  chart('c-cost', B.buckets, (b) => b.cost, (b) => b.n, usd, null, null, label, 'Median cost per turn per bucket');
+  chart('c-cost', B.buckets, (b) => b.cost, (b) => b.priced, usd, null, null, label, 'Median cost per turn per bucket');
 }
 
 /** A line over buckets sized to its container, so its 12px text stays 12px on a phone. */
@@ -273,9 +286,10 @@ function work(R) {
   const total = split.reduce((a, e) => ({ n: a.n + e.n, c: a.c + e.c, pn: a.pn + e.pn, pc: a.pc + e.pc, unpriced: a.unpriced + e.unpriced }), { n: 0, c: 0, pn: 0, pc: 0, unpriced: 0 });
   const line = (e, label) => ({
     cls: e.n < TARGETS.minN ? 'thin' : '',
-    cells: [label ?? e.who, e.n ? `${usd(e.c)} · ${plural(e.n, 'call')}` : 'none', e.pn ? `${usd(e.pc)} · ${plural(e.pn, 'call')}` : 'none', e.n && e.pn ? change(e.c, e.pc) : '—'],
+    cells: [label ?? e.who, e.n ? `${usd(e.c)} · ${plural(e.n, 'call')}` : 'no calls', !R.coverage.prevTracked ? 'not tracked' : e.pn ? `${usd(e.pc)} · ${plural(e.pn, 'call')}` : 'no calls', R.coverage.prevTracked && e.n && e.pn ? change(e.c, e.pc) : '—'],
   });
   el.innerHTML = rowsHtml(['Who', 'This window', `Previous ${span(days)}`, 'Change'], [...split.map((e) => line(e)), line(total, 'All Claude work')]) +
+    (R.prevNote ? `<p class="note end">${esc(R.prevNote)}.</p>` : '') +
     (total.unpriced ? `<p class="note end">${esc(plural(total.unpriced, 'call'))} used a model with no price in the table and ${total.unpriced === 1 ? 'is' : 'are'} not in the cost.</p>` : '');
 }
 
@@ -294,8 +308,8 @@ function tools(R) {
   if (!list.length) { el.innerHTML = `<p class="empty">${esc(R.cur.some((r) => r.k === 'tool') ? `No tool failed more than ${pct(TARGETS.toolFailRate)} of its calls in this window.` : 'No tool calls in this window: not tracked.')}</p>`; return; }
   el.innerHTML = rowsHtml(['Tool', 'Failed', `Previous ${span(days)}`, 'Change'], list.map((x) => ({
     cls: x.thin ? 'thin' : 'bad', rateCol: 1,
-    cells: [x.label, `${pct(x.rate)} · ${n0(x.bad)} of ${n0(x.n)}${x.thin ? ' (too few)' : ''}`, x.prev ? `${pct(x.prev.bad / x.prev.n)} · ${n0(x.prev.bad)} of ${n0(x.prev.n)}` : 'none', x.prev ? pp(x.rate, x.prev.bad / x.prev.n) : '—'],
-  })));
+    cells: [x.label, `${pct(x.rate)} · ${n0(x.bad)} of ${n0(x.n)}${x.thin ? ' (too few)' : ''}`, !R.coverage.prevTracked ? 'not tracked' : x.prev ? `${pct(x.prev.bad / x.prev.n)} · ${n0(x.prev.bad)} of ${n0(x.prev.n)}` : 'no calls', R.coverage.prevTracked && x.prev ? pp(x.rate, x.prev.bad / x.prev.n) : '—'],
+  }))) + (R.prevNote ? `<p class="note end">${esc(R.prevNote)}.</p>` : '');
 }
 
 function wire(id, set) {

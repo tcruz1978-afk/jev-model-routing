@@ -8,25 +8,45 @@
  * dashboard.mjs inlines it into the page (it strips `export`), so the page
  * and the tests can never disagree. Keep it free of imports.
  *
- * Check states: 'pass', 'attention', 'untracked' (no data: never green) and
- * 'thin' (a rate over fewer than TARGETS.minN: too few to judge).
+ * Check states: 'pass' and 'attention' (only for a check with an
+ * owner-approved target), 'neutral' (a check with no approved target: facts
+ * only, never coloured), 'untracked' (no data: never green), 'thin' (a rate
+ * over fewer than TARGETS.minN: too few to judge) and 'partial' (the data it
+ * rests on stopped early).
  */
 
 export const DAY = 86400000
 
-/** Declared targets. The page colours only from these, and prints them. */
+/**
+ * The owner's targets (approved 2026-09-26): the only rules that colour
+ * anything. A check without an approved target would render 'neutral'.
+ */
 export const TARGETS = {
-  maxGaps: 2, // prompts with no Jev decision within matchMs
-  quietMs: 10 * 60000, // last decision behind the last prompt by more than this
-  matchMs: 2 * 60000,
+  decideRate: 0.95, // your prompts with a logged Jev decision within matchMs, at least
   missRate: 0.1, // flagged misroutes over Jev decisions, at most
+  maxRefusals: 0, // Skill tool refusals
   landRate: 0.8, // turns that landed over turns with an outcome, at least
   routerRate: 0.1, // routed calls that errored or fell back, at most
-  creditFloor: 0.1, // credit or key limit left, at least
-  toolFailRate: 0.1, // per tool, at most
+  creditFloor: 0.1, // credit or key limit left: attention under this
+  toolFailRate: 0.1, // per tool with n >= minN, at most
+  // Reporting: every host that reported in the previous window reports in this one.
   minN: 10, // below this a rate is "too few to judge"
   staleMs: 26 * 3600000, // a build older than this is out of date
+  matchMs: 2 * 60000, // a decision within this of a prompt belongs to it (a matching rule, not a target)
 }
+
+/** The approved targets in words, for the page's note. */
+export const TARGETS_APPROVED = '2026-09-26'
+export const TARGET_NOTES = [
+  'Jev is deciding: at least 95% of your prompts get a logged Jev decision within 2 min',
+  'Jev is picking right: at most 10% of decisions flagged as misroutes',
+  'Skills load: no refusals',
+  'Answers land: at least 80% of turns with an outcome',
+  'Model router: at most 10% of routed calls error or fall back',
+  'OpenRouter credit: attention under 10% of credit or of the key\'s limit left',
+  'Tools: no tool fails more than 10% of its calls (coloured from 10 calls)',
+  'Reporting: every host that reported in the previous window reports in this one',
+]
 
 export const CHECK_IDS = ['jev-deciding', 'jev-picking', 'skills', 'landing', 'router', 'openrouter', 'reporting']
 
@@ -52,7 +72,7 @@ export const span = (days) => (days === 1 ? '24 hours' : `${days} days`)
 export const plural = (n, word, many = word + 's') => `${n0(n)} ${n === 1 ? word : many}`
 export const ago = (ms) => {
   const m = Math.round(ms / 60000)
-  return m < 1 ? 'just now' : m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`
+  return m < 1 ? 'just now' : m < 180 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`
 }
 
 // ---------- basics ----------
@@ -83,8 +103,6 @@ export function isStale(generatedAt, now, staleMs = TARGETS.staleMs) {
 const isPrompt = (r) => r.k === 'prompt' && (!r.a || r.a === 'main')
 const near = (list, r, ms = TARGETS.matchMs) => list.some((d) => d.s === r.s && Math.abs(d.t - r.t) <= ms)
 
-// ---------- check 1: Jev is deciding ----------
-
 export function decidingStats(rows) {
   const prompts = rows.filter(isPrompt)
   const decisions = rows.filter((r) => r.k === 'jev.decision')
@@ -93,6 +111,9 @@ export function decidingStats(rows) {
   const unmatched = suggested.filter((s) => !near(decisions, s))
   const last = (list) => (list.length ? Math.max(...list.map((r) => r.t)) : null)
   const by = (f) => decisions.filter(f).length
+  const lastDecision = last(decisions)
+  // Prompts after the last logged decision (beyond the 2-min match): the log went quiet.
+  const afterLast = prompts.filter((p) => lastDecision === null || p.t > lastDecision + TARGETS.matchMs).length
   return {
     prompts: prompts.length,
     decided: prompts.length - gaps.length,
@@ -103,42 +124,52 @@ export function decidingStats(rows) {
     byBackup: by((r) => String(r.d?.decidedBy ?? '').startsWith('backup')),
     unmatched: unmatched.length,
     lastPrompt: last(prompts),
-    lastDecision: last(decisions),
+    lastDecision,
+    afterLast,
+    quiet: afterLast > 0,
   }
 }
 
-function checkDeciding(cur, prev, days) {
+/**
+ * What the previous window can say, given when collection began: a previous
+ * window that starts before the first event is not tracked, never "none".
+ */
+export function prevNote(ctx) {
+  const { w, since, days } = ctx
+  if (since === null || since === undefined || !Number.isFinite(since)) return `Previous ${span(days)}: not tracked (no data)`
+  return w.prevFrom < since ? `Previous ${span(days)}: not tracked (collection began ${fmtTime(since)})` : null
+}
+const prevOk = (ctx) => prevNote(ctx) === null
+
+// ---------- check 1: Jev is deciding (no target set) ----------
+
+function checkDeciding(cur, prev, ctx) {
   const a = decidingStats(cur), b = decidingStats(prev)
-  const base = {
-    id: 'jev-deciding',
-    title: 'Jev is deciding',
-    target: `Higher is better. Attention if more than ${TARGETS.maxGaps} prompts get no logged decision within 2 min, or the last decision is more than 10 min behind the last prompt.`,
-    n: a.prompts,
-  }
+  const base = { id: 'jev-deciding', title: 'Jev is deciding', targeted: true, target: `Higher is better; target ≥ ${pct(TARGETS.decideRate)} of your prompts get a logged decision within 2 min.`, n: a.prompts }
   if (!a.prompts) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No prompts in the window.', compare: '', lines: [] }
-  const quietBy = a.lastDecision === null ? null : a.lastPrompt - a.lastDecision
-  const quiet = a.lastDecision === null || quietBy > TARGETS.quietMs
   const rate = a.decided / a.prompts
   const prevRate = b.prompts ? b.decided / b.prompts : null
+  const behind = a.lastDecision === null ? null : a.lastPrompt - a.lastDecision
   const lines = [
-    `${plural(a.gaps, 'gap')}: prompts with no logged decision within 2 min`,
-    `Last prompt ${fmtTime(a.lastPrompt)} · last decision ${a.lastDecision === null ? 'none in the window' : fmtTime(a.lastDecision)}${quiet && a.lastDecision !== null ? ` (${ago(quietBy)} behind)` : ''}`,
+    `${n0(a.gaps)} of ${plural(a.prompts, 'prompt')} had no logged decision within 2 min`,
+    `Last prompt ${fmtTime(a.lastPrompt)} · last decision ${a.lastDecision === null ? 'none in the window' : fmtTime(a.lastDecision)}${behind > TARGETS.matchMs ? ` (${ago(behind)} behind)` : ''}`,
   ]
+  if (a.quiet) lines.push(`${plural(a.afterLast, 'prompt')} came after the last logged decision: the decision log has gone quiet`)
   if (a.decisions) lines.push(`${n0(a.picked)} of ${plural(a.decisions, 'Jev decision')} picked a skill · ${n0(a.byJev)} decided by Jev, ${n0(a.byBackup)} by the backup model, ${n0(a.decisions - a.byJev - a.byBackup)} by the built-in picker`)
   if (a.unmatched) lines.push(`${plural(a.unmatched, 'Jev suggestion')} seen in transcripts with no logged decision: Jev ran, the decision log did not record it`)
   return {
     ...base,
-    state: a.gaps > TARGETS.maxGaps || quiet ? 'attention' : 'pass',
-    figure: `${n0(a.decided)} of ${plural(a.prompts, 'prompt')}`,
-    population: 'Prompts you sent in the window that got a logged Jev decision within 2 min.',
-    compare: prevRate === null ? `Previous ${span(days)}: not tracked (no prompts)` : `${pct(rate)} now · previous ${span(days)} ${pct(prevRate)} of ${plural(b.prompts, 'prompt')} · ${pp(rate, prevRate)}`,
+    state: a.prompts < TARGETS.minN ? 'thin' : rate < TARGETS.decideRate ? 'attention' : 'pass',
+    figure: `${pct(rate)} decided`,
+    population: `${n0(a.decided)} of ${plural(a.prompts, 'prompt')} you sent in the window got a logged Jev decision within 2 min.`,
+    compare: prevNote(ctx) ?? (prevRate === null ? `Previous ${span(ctx.days)}: not tracked (no prompts)` : `Previous ${span(ctx.days)}: ${pct(prevRate)} of ${plural(b.prompts, 'prompt')} · ${pp(rate, prevRate)}`),
     value: rate,
     lines,
     stats: a,
   }
 }
 
-// ---------- check 2: Jev is picking right ----------
+// ---------- check 2: Jev is picking right (target ≤ 10%) ----------
 
 const SIGNAL = {
   'typed-after': 'you typed a skill next',
@@ -147,36 +178,41 @@ const SIGNAL = {
   'dropped-decisive': 'a confident pick was dropped',
 }
 
-function checkPicking(cur, prev, days) {
-  const dec = cur.filter((r) => r.k === 'jev.decision').length
+function checkPicking(cur, prev, ctx, deciding) {
+  const decs = cur.filter((r) => r.k === 'jev.decision')
+  const dec = decs.length
   const misses = cur.filter((r) => r.k === 'jev.miss').sort((x, y) => y.t - x.t)
   const pdec = prev.filter((r) => r.k === 'jev.decision').length
   const pmiss = prev.filter((r) => r.k === 'jev.miss').length
-  const base = { id: 'jev-picking', title: 'Jev is picking right', target: `Lower is better; target ≤ ${pct(TARGETS.missRate)} of decisions flagged as misroutes.`, n: dec }
+  const base = { id: 'jev-picking', title: 'Jev is picking right', targeted: true, target: `Lower is better; target ≤ ${pct(TARGETS.missRate)} of decisions flagged as misroutes.`, n: dec }
   if (!dec) return { ...base, state: 'untracked', figure: 'Not tracked', population: `No Jev decisions logged in the window${misses.length ? ` (${plural(misses.length, 'flagged miss', 'flagged misses')} anyway)` : ''}.`, compare: '', lines: [] }
   const rate = misses.length / dec
   const prate = pdec ? pmiss / pdec : null
+  const first = Math.min(...decs.map((r) => r.t)), last = Math.max(...decs.map((r) => r.t))
+  const lines = [`Decisions cover ${fmtTime(first)} to ${fmtTime(last)} (decisions up to ${fmtTime(last)})`]
+  if (deciding?.quiet) lines.push(`Partial: ${plural(deciding.afterLast, 'prompt')} came after the last logged decision, so their picks are not judged`)
+  lines.push(...misses.slice(0, 3).map((m) => `${fmtTime(m.t)} · ${SIGNAL[m.d?.signal] ?? m.d?.signal ?? 'flagged'} · Jev picked ${m.d?.jevPick ?? 'nothing'} · expected ${m.sk ?? 'not known'}`))
   return {
     ...base,
-    state: dec < TARGETS.minN ? 'thin' : rate > TARGETS.missRate ? 'attention' : 'pass',
+    state: deciding?.quiet ? 'partial' : dec < TARGETS.minN ? 'thin' : rate > TARGETS.missRate ? 'attention' : 'pass',
     figure: `${pct(rate)} misrouted`,
-    population: `${n0(misses.length)} flagged misroute${misses.length === 1 ? '' : 's'} (jev.miss) of ${plural(dec, 'Jev decision')}.`,
-    compare: prate === null ? `Previous ${span(days)}: not tracked (no decisions)` : `Previous ${span(days)}: ${pct(prate)} (${n0(pmiss)} of ${n0(pdec)}) · ${pp(rate, prate)}`,
+    population: `${n0(misses.length)} flagged misroute${misses.length === 1 ? '' : 's'} (jev.miss) of ${plural(dec, 'Jev decision')} logged: every decision, including ones not tied to a prompt you sent.`,
+    compare: prevNote(ctx) ?? (prate === null ? `Previous ${span(ctx.days)}: not tracked (no decisions)` : `Previous ${span(ctx.days)}: ${pct(prate)} (${n0(pmiss)} of ${n0(pdec)}) · ${pp(rate, prate)}`),
     value: rate,
-    lines: misses.slice(0, 3).map((m) => `${fmtTime(m.t)} · ${SIGNAL[m.d?.signal] ?? m.d?.signal ?? 'flagged'} · Jev picked ${m.d?.jevPick ?? 'nothing'} · expected ${m.sk ?? 'not known'}`),
+    lines,
   }
 }
 
-// ---------- check 3: Skills load ----------
+// ---------- check 3: Skills load (target: no refusals) ----------
 
 function skillStats(rows) {
   const calls = rows.filter((r) => r.k === 'tool' && r.tl === 'Skill' && r.ok !== null && r.ok !== undefined)
   return { calls: calls.length, refused: calls.filter((r) => r.ok === false) }
 }
 
-function checkSkills(cur, prev, days) {
+function checkSkills(cur, prev, ctx) {
   const a = skillStats(cur), b = skillStats(prev)
-  const base = { id: 'skills', title: 'Skills load', target: 'Lower is better; target: no refusals. One refusal needs attention, whatever the count.', n: a.calls }
+  const base = { id: 'skills', title: 'Skills load', targeted: true, target: 'Lower is better; target: no refusals. One refusal needs attention, whatever the count.', n: a.calls }
   if (!a.calls) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'Claude made no Skill tool calls in the window.', compare: '', lines: [] }
   const counts = new Map()
   for (const r of a.refused) counts.set(r.sk ?? 'unnamed', (counts.get(r.sk ?? 'unnamed') ?? 0) + 1)
@@ -189,16 +225,16 @@ function checkSkills(cur, prev, days) {
   }
   return {
     ...base,
-    state: a.refused.length ? 'attention' : 'pass',
+    state: a.refused.length > TARGETS.maxRefusals ? 'attention' : 'pass',
     figure: `${n0(a.refused.length)} of ${n0(a.calls)} refused`,
     population: 'Skill tool calls Claude made in the window.',
-    compare: prate === null ? `Previous ${span(days)}: not tracked (no Skill calls)` : `Previous ${span(days)}: ${n0(b.refused.length)} of ${n0(b.calls)} refused (${pct(prate)}) · ${pp(rate, prate)}`,
+    compare: prevNote(ctx) ?? (prate === null ? `Previous ${span(ctx.days)}: not tracked (no Skill calls)` : `Previous ${span(ctx.days)}: ${n0(b.refused.length)} of ${n0(b.calls)} refused (${pct(prate)}) · ${pp(rate, prate)}`),
     value: rate,
     lines,
   }
 }
 
-// ---------- check 4: Answers land ----------
+// ---------- check 4: Answers land (target ≥ 80%) ----------
 
 export function landStats(turns) {
   const known = turns.filter((t) => t.land !== null && t.land !== undefined)
@@ -206,22 +242,22 @@ export function landStats(turns) {
   return { turns: turns.length, known: known.length, landed, open: turns.length - known.length, rate: known.length ? landed / known.length : null }
 }
 
-function checkLanding(tcur, tprev, days) {
+function checkLanding(tcur, tprev, ctx) {
   const a = landStats(tcur), b = landStats(tprev)
-  const base = { id: 'landing', title: 'Answers land', target: `Higher is better; target ≥ ${pct(TARGETS.landRate)}. Landed = your next message did not push back, read from its wording (a heuristic).`, n: a.known }
+  const base = { id: 'landing', title: 'Answers land', targeted: true, target: `Higher is better; target ≥ ${pct(TARGETS.landRate)}. Landed = your next message did not push back, read from its wording (a heuristic).`, n: a.known }
   if (!a.known) return { ...base, state: 'untracked', figure: 'Not tracked', population: a.turns ? `No turn has an outcome yet (${plural(a.open, 'turn')} still open).` : 'No turns in the window.', compare: '', lines: [] }
   return {
     ...base,
     state: a.known < TARGETS.minN ? 'thin' : a.rate < TARGETS.landRate ? 'attention' : 'pass',
     figure: `${pct(a.rate)} landed`,
     population: `${n0(a.landed)} of ${plural(a.known, 'turn')} with an outcome; ${n0(a.open)} still open (a session's last turn).`,
-    compare: b.rate === null ? `Previous ${span(days)}: not tracked (no turns with an outcome)` : `Previous ${span(days)}: ${pct(b.rate)} of ${n0(b.known)} · ${pp(a.rate, b.rate)}`,
+    compare: prevNote(ctx) ?? (b.rate === null ? `Previous ${span(ctx.days)}: not tracked (no turns with an outcome)` : `Previous ${span(ctx.days)}: ${pct(b.rate)} of ${n0(b.known)} · ${pp(a.rate, b.rate)}`),
     value: a.rate,
     lines: [],
   }
 }
 
-// ---------- check 5: Model router ----------
+// ---------- check 5: Model router (no target set) ----------
 
 function routerStats(rows) {
   const calls = rows.filter((r) => r.k === 'router.call')
@@ -230,18 +266,18 @@ function routerStats(rows) {
   return { calls, n: calls.length, errors, fallbacks, rate: calls.length ? (errors + fallbacks) / calls.length : null }
 }
 
-function checkRouter(cur, prev, days) {
+function checkRouter(cur, prev, ctx) {
   const a = routerStats(cur), b = routerStats(prev)
-  const base = { id: 'router', title: 'Model router', target: `Lower is better; target ≤ ${pct(TARGETS.routerRate)} of routed calls erroring or served by a fallback model.`, n: a.n }
-  if (!a.n) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No routed calls in the window (n = 0).', compare: b.n ? `Previous ${span(days)}: ${plural(b.n, 'call')}` : '', lines: [] }
+  const base = { id: 'router', title: 'Model router', targeted: true, target: `Lower is better; target ≤ ${pct(TARGETS.routerRate)} of routed calls erroring or served by a fallback model.`, n: a.n }
+  if (!a.n) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No routed calls in the window (n = 0).', compare: prevNote(ctx) ?? (b.n ? `Previous ${span(ctx.days)}: ${plural(b.n, 'call')}` : ''), lines: [] }
   const last = a.calls.reduce((x, y) => (y.t > x.t ? y : x))
   const status = last.ok === false ? `error: ${String(last.d?.error ?? 'unknown').slice(0, 60)}` : last.d?.fallbackFrom ? 'fallback' : 'ok'
   return {
     ...base,
     state: a.n < TARGETS.minN ? 'thin' : a.rate > TARGETS.routerRate ? 'attention' : 'pass',
     figure: `${pct(a.rate)} errors or fallbacks`,
-    population: `${plural(a.errors, "error")} + ${plural(a.fallbacks, "fallback")} of ${plural(a.n, 'routed call')} (n = ${n0(a.n)}).`,
-    compare: b.rate === null ? `Previous ${span(days)}: not tracked (no routed calls)` : `Previous ${span(days)}: ${pct(b.rate)} of ${n0(b.n)} · ${pp(a.rate, b.rate)}`,
+    population: `${plural(a.errors, 'error')} + ${plural(a.fallbacks, 'fallback')} of ${plural(a.n, 'routed call')} (n = ${n0(a.n)}).`,
+    compare: prevNote(ctx) ?? (b.rate === null ? `Previous ${span(ctx.days)}: not tracked (no routed calls)` : `Previous ${span(ctx.days)}: ${pct(b.rate)} of ${n0(b.n)} · ${pp(a.rate, b.rate)}`),
     value: a.rate,
     lines: [`Last call ${fmtTime(last.t)}: ${last.d?.category ?? 'task'} → ${last.m ?? 'unknown model'} (${status})`],
   }
@@ -266,12 +302,13 @@ const PERIOD_LABEL = { daily: 'UTC day', weekly: 'UTC week to date', monthly: 'U
 const PREV_LABEL = { daily: 'previous UTC day', weekly: 'previous UTC week', monthly: 'previous UTC month' }
 
 /**
- * The key's spend for its period, split into what the logs can explain:
- *   key usage = routed calls (cost logged) + Jev decisions (cost not logged) + unattributed.
- * Jev's decision calls go through OpenRouter too but log no cost, so their
- * share is inside `unattributed` and printed as not tracked. All hosts.
+ * The key's spend for its period, in dollars the logs can explain:
+ *   key usage = routed calls (cost logged) + unattributed.
+ * Jev's decision calls go through OpenRouter too but log no cost, so they sit
+ * inside `unattributed`; they are counted, never priced. A period that began
+ * before collection did (`since`) cannot be reconciled.
  */
-export function reconcile(keyRow, rows, period) {
+export function reconcile(keyRow, rows, period, since = null) {
   const d = keyRow?.d ?? {}
   const usage = d[`usage_${period}`]
   const to = keyRow.t
@@ -281,14 +318,16 @@ export function reconcile(keyRow, rows, period) {
   const routed = routedCalls.reduce((a, r) => a + (Number.isFinite(r.c) ? r.c : 0), 0)
   const decisions = inPeriod.filter((r) => r.k === 'jev.decision').length
   const known = Number.isFinite(usage)
-  const unattributed = known ? usage - routed : null
-  return { period, from, to, usage: known ? usage : null, routed, routedCalls: routedCalls.length, decisions, unattributed, closes: known ? unattributed >= -1e-9 : null }
+  const reconcilable = known && !(Number.isFinite(since) && from < since)
+  const unattributed = reconcilable ? usage - routed : null
+  return { period, from, to, usage: known ? usage : null, routed, routedCalls: routedCalls.length, decisions, unattributed, reconcilable, closes: reconcilable ? unattributed >= -1e-9 : null }
 }
 
-function checkCredit(rows, end, days) {
+function checkCredit(rows, end, ctx) {
+  const days = ctx.days
   const keys = rows.filter((r) => r.k === 'openrouter.key' && r.t <= end).sort((a, b) => a.t - b.t)
   const last = keys[keys.length - 1]
-  const base = { id: 'openrouter', title: 'OpenRouter credit', target: `Attention under ${pct(TARGETS.creditFloor)} of credit or of the key's limit left.`, account: true }
+  const base = { id: 'openrouter', title: 'OpenRouter credit', targeted: true, target: `Warns under ${pct(TARGETS.creditFloor)} of credit or of the key's limit left.`, account: true }
   if (!last) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'The collector has not read the OpenRouter key (it needs OPENROUTER_API_KEY). Account-wide, not filtered.', compare: '', lines: [] }
   if (end - last.t > TARGETS.staleMs) return { ...base, state: 'untracked', figure: 'Not tracked', population: `The last key check was ${fmtTime(last.t)}, more than 26 h before this build; its figures are not shown as current. Account-wide, not filtered.`, compare: '', lines: [] }
   const d = last.d ?? {}
@@ -299,7 +338,7 @@ function checkCredit(rows, end, days) {
   const earlier = keys.filter((r) => r.t <= last.t - days * DAY).pop()
   const earlierCredit = earlier && Number.isFinite(earlier.d?.total_credits) && Number.isFinite(earlier.d?.total_usage) ? earlier.d.total_credits - earlier.d.total_usage : null
   const period = periodFor(days)
-  const rec = reconcile(last, rows.filter((r) => r.t <= end), period)
+  const rec = reconcile(last, rows.filter((r) => r.t <= end), period, ctx.since)
   const prevKey = keys.filter((r) => r.t < rec.from && r.t >= periodStart(rec.from - 1, period)).pop()
   const prevUsage = prevKey ? prevKey.d?.[`usage_${period}`] : null
   const lines = [
@@ -308,8 +347,11 @@ function checkCredit(rows, end, days) {
     `Spend on this key, ${PERIOD_LABEL[period]} (${fmtDate(rec.from)} to ${fmtTime(rec.to)}): ${usd(rec.usage)}, as OpenRouter reports it` +
       (Number.isFinite(prevUsage) ? ` · ${PREV_LABEL[period]} ${usd(prevUsage)} (as of ${fmtTime(prevKey.t)})` : ` · ${PREV_LABEL[period]}: not tracked`),
   ]
-  if (rec.usage !== null) {
-    lines.push(`= routed calls ${usd(rec.routed)} (${plural(rec.routedCalls, 'call')}, cost logged) + Jev decisions: ${n0(rec.decisions)}, cost not logged (not tracked) + unattributed ${usd(rec.unattributed)}`)
+  if (rec.usage !== null && !rec.reconcilable) {
+    lines.push(`Not reconcilable: the key's ${PERIOD_LABEL[period]} began ${fmtTime(rec.from)}, before collection began ${fmtTime(ctx.since)}.`)
+  } else if (rec.usage !== null) {
+    lines.push(`${usd(rec.usage)} = routed calls ${usd(rec.routed)} (${plural(rec.routedCalls, 'call')}, cost logged) + unattributed ${usd(rec.unattributed)}`)
+    lines.push(`Jev's decision calls (${n0(rec.decisions)} this period) also go through OpenRouter; their cost is not logged, so it is inside unattributed.`)
     if (!rec.closes) lines.push(`Does not close: logged routed cost is ${usd(-rec.unattributed)} more than the key reports. Trust the key's figure.`)
   }
   return {
@@ -317,16 +359,16 @@ function checkCredit(rows, end, days) {
     state: low ? 'attention' : 'pass',
     figure: credits === null ? `${usd(d.limit_remaining)} key limit left` : `${usd(credits)} credit left`,
     population: credits === null ? 'The credits endpoint did not answer; key limit only.' : `Of ${usd(d.total_credits)} bought (${pct(creditShare)} left).`,
-    compare: earlierCredit === null ? `${span(days)} earlier: no key check that far back` : `${span(days)} earlier: ${usd(earlierCredit)} left (${fmtTime(earlier.t)})`,
+    compare: earlierCredit === null ? `${span(days)} earlier: not tracked (no key check that far back)` : `${span(days)} earlier: ${usd(earlierCredit)} left (${fmtTime(earlier.t)})`,
     value: creditShare ?? limitShare,
     lines,
     reconciliation: rec,
   }
 }
 
-// ---------- check 7: Reporting ----------
+// ---------- check 7: Reporting (no target set) ----------
 
-function checkReporting(all, cur, prev, host, end, days) {
+function checkReporting(all, cur, prev, host, end, ctx) {
   const lastBy = (list) => {
     const m = new Map()
     for (const r of list) {
@@ -345,14 +387,19 @@ function checkReporting(all, cur, prev, host, end, days) {
   const hosts = [...ever.keys()]
   if (host !== 'cloud' && !hosts.some((h) => String(h).startsWith('local'))) lines.push('Local: not tracked. No local machine has reported.')
   if (host !== 'local' && !hosts.includes('cloud')) lines.push('Cloud: not tracked. No cloud session has reported.')
-  const base = { id: 'reporting', title: 'Reporting', target: 'Every host that reported in the previous window reports in this one.', n: now.size }
-  if (!now.size && !before.size) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No host reported any event in the window.', compare: before.size ? `Previous ${span(days)}: ${plural(before.size, 'host')}` : '', lines }
+  const base = { id: 'reporting', title: 'Reporting', targeted: true, target: 'Every host that reported in the previous window reports in this one. Not tracked when the previous window has no hosts.', n: now.size }
+  const blocked = prevNote(ctx)
+  const compare = blocked ?? `Previous ${span(ctx.days)}: ${before.size ? plural(before.size, 'host') : 'no host reported'}`
+  if (!now.size && !before.size) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No host reported any event in this window or the one before.', compare: blocked ?? '', lines }
+  if (blocked || !before.size) {
+    return { ...base, state: 'untracked', figure: `${plural(now.size, 'host')} reported`, population: 'Nothing to compare with: the previous window has no hosts to hold this one to.', compare, value: now.size, lines }
+  }
   return {
     ...base,
     state: quiet.length ? 'attention' : 'pass',
     figure: now.size ? `${plural(now.size, 'host')} reported` : 'No host reported',
-    population: now.size ? 'Hosts with any event in the window.' : 'No host reported any event in this window, though some did in the one before: collection or shipping stopped.',
-    compare: `Previous ${span(days)}: ${before.size ? plural(before.size, 'host') : 'none'}`,
+    population: now.size ? `Hosts with any event in the window${quiet.length ? `; ${plural(quiet.length, 'host')} that reported before did not` : ''}.` : 'No host reported any event in this window, though some did in the one before.',
+    compare,
     value: now.size,
     lines,
   }
@@ -360,37 +407,58 @@ function checkReporting(all, cur, prev, host, end, days) {
 
 // ---------- the verdict ----------
 
-export function verdictOf(checks) {
-  const count = (s) => checks.filter((c) => c.state === s).length
-  const att = count('attention'), un = count('untracked'), thin = count('thin'), ok = count('pass')
-  const tail = [un ? `${n0(un)} not tracked` : '', thin ? `${n0(thin)} too few to judge` : ''].filter(Boolean).join(' · ')
-  const N = checks.length
-  if (att) return { state: 'attention', text: `${n0(att)} of ${n0(N)} checks need attention`, tail }
-  if (!ok) return { state: 'untracked', text: `None of ${n0(N)} checks can be judged`, tail }
-  if (un || thin) return { state: 'untracked', text: `${n0(ok)} of ${n0(N)} checks passing`, tail }
-  return { state: 'pass', text: `All ${n0(N)} checks passing`, tail: '' }
+/**
+ * Counts only checks with an owner-approved target; the rest are facts.
+ * With a host filter, account-wide checks (OpenRouter) are left out: the
+ * filter cannot apply to them.
+ */
+export function verdictOf(checks, host = 'all') {
+  const acct = host !== 'all' ? checks.filter((c) => c.targeted && c.account) : []
+  const judged = checks.filter((c) => c.targeted && !acct.includes(c))
+  const others = checks.filter((c) => !c.targeted).length
+  const count = (s) => judged.filter((c) => c.state === s).length
+  const att = count('attention'), un = count('untracked'), thin = count('thin'), part = count('partial'), ok = count('pass')
+  const N = judged.length
+  const tail = [
+    un ? `${n0(un)} not tracked` : '',
+    thin ? `${n0(thin)} too few to judge` : '',
+    part ? `${n0(part)} partial` : '',
+    others ? `${plural(others, 'check')} without a target` : '',
+    acct.length ? `${acct.map((c) => c.title).join(', ')} left out (account-wide)` : '',
+  ].filter(Boolean).join(' · ')
+  const noun = `${others ? 'targeted ' : ''}check${N === 1 ? '' : 's'}`
+  if (att) return { state: 'attention', text: `${n0(att)} of ${n0(N)} ${noun} ${att === 1 ? 'needs' : 'need'} attention`, tail }
+  if (!ok) return { state: 'untracked', text: `None of ${n0(N)} ${noun} can be judged`, tail }
+  if (un || thin || part) return { state: 'untracked', text: `${n0(ok)} of ${n0(N)} ${noun} passing`, tail }
+  return { state: 'pass', text: `All ${n0(N)} ${noun} passing`, tail }
 }
 
-/** Every check for one window and host filter, measured back from the build time. */
-export function runChecks({ rows, turns = [], generatedAt, days, host = 'all' }) {
+/** Every check for one window and host filter, measured back from the build time. `since` is the first event (collection start). */
+export function runChecks({ rows, turns = [], generatedAt, days, host = 'all', since = null }) {
   const end = typeof generatedAt === 'number' ? generatedAt : Date.parse(generatedAt)
   const w = windowOf(end, days)
+  const all = [...rows, ...turns]
+  const first = since === null || since === undefined ? (all.length ? Math.min(...all.map((r) => r.t)) : null) : typeof since === 'number' ? since : Date.parse(since)
+  const ctx = { w, days, since: first }
   const scoped = rows.filter((r) => hostMatch(r.h, host))
   const cur = scoped.filter((r) => inside(r.t, w.from, w.to))
   const prev = scoped.filter((r) => inside(r.t, w.prevFrom, w.prevTo))
   const st = turns.filter((t) => hostMatch(t.h, host))
   const tcur = st.filter((t) => inside(t.t, w.from, w.to))
   const tprev = st.filter((t) => inside(t.t, w.prevFrom, w.prevTo))
+  const deciding = checkDeciding(cur, prev, ctx)
   const checks = [
-    checkDeciding(cur, prev, days),
-    checkPicking(cur, prev, days),
-    checkSkills(cur, prev, days),
-    checkLanding(tcur, tprev, days),
-    checkRouter(cur, prev, days),
-    checkCredit(rows, end, days),
-    checkReporting(rows, cur, prev, host, end, days),
+    deciding,
+    checkPicking(cur, prev, ctx, deciding.stats),
+    checkSkills(cur, prev, ctx),
+    checkLanding(tcur, tprev, ctx),
+    checkRouter(cur, prev, ctx),
+    checkCredit(rows, end, ctx),
+    checkReporting(rows, cur, prev, host, end, ctx),
   ]
-  return { window: w, checks, verdict: verdictOf(checks), cur, prev, tcur, tprev }
+  const covered = first === null ? 0 : Math.max(0, end - Math.max(w.from, first))
+  const coverage = { since: first, covered, partial: first === null || first > w.from, prevTracked: prevOk(ctx) }
+  return { window: w, checks, verdict: verdictOf(checks, host), cur, prev, tcur, tprev, coverage, prevNote: prevNote(ctx) }
 }
 
 // ---------- the sections under the checks ----------
@@ -418,7 +486,7 @@ export function workSplit(cur, prev) {
   return [...m.values()].sort((a, b) => b.c - a.c || b.pc - a.pc)
 }
 
-/** Tools (not Skill: check 3 covers it) failing above target, this window, with the previous window's rate. */
+/** Tools (not Skill: check 3 covers it) failing above target, this window, with the previous window's rate. `thin`: under minN calls, not coloured. */
 export function failingTools(cur, prev) {
   const stats = (rows) => {
     const m = new Map()
@@ -468,7 +536,7 @@ export function trendBuckets(turns, w) {
     const to = w.to - (k - 1 - i) * size, from = to - size
     const ts = turns.filter((t) => inside(t.t, from, to))
     const s = landStats(ts)
-    buckets.push({ from, to, n: ts.length, known: s.known, landed: s.landed, rate: s.rate, cost: median(ts.map((t) => t.c)) })
+    buckets.push({ from, to, n: ts.length, known: s.known, landed: s.landed, rate: s.rate, cost: median(ts.map((t) => t.c)), priced: ts.filter((t) => Number.isFinite(t.c)).length })
   }
   return { size, buckets, withData: buckets.filter((b) => b.n > 0).length }
 }

@@ -4,7 +4,8 @@
  * with the refresh machinery around it.
  *
  *   node dashboard.mjs [--input events.jsonl|export.json] [--source local|supabase]
- *                      [--out dashboard.html] [--days 180] [--force]
+ *                      [--out dashboard.html] [--state-dir dir] [--days 180] [--force]
+ *                      [--now ISO-time] [--help]
  *
  * Input is the collector's ~/.claude/usage-telemetry/events.jsonl by default
  * (`--source local`, this machine only), or a JSON array exported from
@@ -32,7 +33,7 @@ import { turnsFrom } from './turns.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 
 /** Keys the page reads from DATA. A build missing one would render blank or wrong. */
-export const REQUIRED_KEYS = { generatedAt: 'string', source: 'string', lastEventAt: 'any', sessions: 'array', rows: 'array', turns: 'array', prices: 'object', summary: 'object' }
+export const REQUIRED_KEYS = { generatedAt: 'string', source: 'string', firstEventAt: 'any', lastEventAt: 'any', sessions: 'array', rows: 'array', turns: 'array', prices: 'object', summary: 'object' }
 export const SNAPSHOTS_KEPT = 30
 
 /** Events from a JSONL file or a JSON array (a Supabase export), with a count of lines that did not parse. */
@@ -138,8 +139,9 @@ export function pricesProvenance(path = join(here, 'prices.json')) {
  */
 export function summarize(payload) {
   const end = Date.parse(payload.generatedAt)
-  const { checks, verdict, cur, tcur } = runChecks({ rows: payload.rows, turns: payload.turns, generatedAt: end, days: 7, host: 'all' })
+  const { checks, verdict, cur, tcur } = runChecks({ rows: payload.rows, turns: payload.turns, generatedAt: end, days: 7, host: 'all', since: payload.firstEventAt })
   const cost = (from) => payload.rows.filter((r) => r.k === 'api' && r.t > from && r.t <= end).reduce((a, r) => a + (Number.isFinite(r.c) ? r.c : 0), 0)
+  const priced = cur.filter((r) => r.k === 'api' && Number.isFinite(r.c)).length
   const or = checks.find((c) => c.id === 'openrouter')
   return {
     window: '7 days to the build, all hosts',
@@ -150,6 +152,7 @@ export function summarize(payload) {
       decisions: cur.filter((r) => r.k === 'jev.decision').length,
       apiCalls: cur.filter((r) => r.k === 'api').length,
       turns: tcur.length,
+      pricedCalls: priced,
     },
     cost: { claude24h: Math.round(cost(end - DAY) * 1e4) / 1e4, claude7d: Math.round(cost(end - 7 * DAY) * 1e4) / 1e4 },
     openrouter: or.state === 'untracked' ? null : { asOf: new Date(or.reconciliation.to).toISOString(), creditShare: or.value ?? null, usageWeekly: or.reconciliation.usage },
@@ -161,7 +164,8 @@ export function summarize(payload) {
 export function buildPayload(events, { source = 'local', now = Date.now(), days = 180 } = {}) {
   const payload = compact(events, { days, now })
   const last = payload.rows[payload.rows.length - 1]
-  const full = { source, generatedAt: new Date(now).toISOString(), lastEventAt: last ? new Date(last.t).toISOString() : null, prices: pricesProvenance(), ...payload }
+  const first = payload.rows[0]
+  const full = { source, generatedAt: new Date(now).toISOString(), firstEventAt: first ? new Date(first.t).toISOString() : null, lastEventAt: last ? new Date(last.t).toISOString() : null, prices: pricesProvenance(), ...payload }
   full.summary = summarize(full)
   return full
 }
@@ -243,9 +247,14 @@ export function checkGuards(current, previous, { problem = null, previousUnreada
   const now = current?.summary, before = previous?.summary
   if (now?.headline && before?.headline) {
     for (const [key, value] of Object.entries(now.headline)) {
+      if (key === 'pricedCalls') continue
       const was = before.headline[key]
       if (value === 0 && was > 0) tripped.push({ guard: 'headline-zero', message: `${key} (7 days) came back 0; the previous build had ${was}` })
     }
+  }
+  // Model calls with no cost: the price table or the cost field broke, whatever the previous build said.
+  if (now?.headline?.apiCalls > 0 && (!now.cost || !Number.isFinite(now.cost.claude7d) || now.cost.claude7d === 0 || now.headline.pricedCalls === 0)) {
+    tripped.push({ guard: 'headline-zero', message: `Claude cost (7 days) came back ${now.cost && Number.isFinite(now.cost.claude7d) ? usd(now.cost.claude7d) : 'missing'} across ${now.headline.apiCalls} model calls` })
   }
   const a = now?.cost?.claude24h, b = before?.cost?.claude24h
   if (a > 0 && b > 0 && Math.max(a, b) >= 1 && Math.max(a / b, b / a) > 5) {
@@ -289,7 +298,27 @@ export function runLine({ at, payload, events, guards, published }) {
   ].join(' ')
 }
 
+export const USAGE = `Build the Claude usage dashboard.
+
+  node dashboard.mjs [options]
+
+  --input <file>      events: collector JSONL (default ~/.claude/usage-telemetry/events.jsonl)
+                      or a JSON array exported from claude_usage.events
+  --source <s>        local (default; this machine only) or supabase (every host)
+  --out <file>        page to write (default <state-dir>/dashboard.html)
+  --state-dir <dir>   snapshots/ and runs.log (default ~/.claude/usage-telemetry)
+  --days <n>          days of events the page carries (default 180)
+  --force             publish even when a guard trips
+  --now <ISO time>    testing only: build as if at this time
+  --help              print this and exit without building
+
+Exits 2 without writing the page when a guard trips (it names each one).`
+
 function main(argv) {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(USAGE)
+    return
+  }
   const opt = (name, fallback) => {
     const i = argv.indexOf(name)
     return i >= 0 ? argv[i + 1] : fallback

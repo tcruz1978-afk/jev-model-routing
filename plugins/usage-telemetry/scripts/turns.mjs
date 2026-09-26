@@ -24,7 +24,8 @@ function mainModelOf(api) {
  * Turn rows from compact rows (short keys, sorted or not). Each turn:
  *   t prompt time, s session index, h host, p project, cat category,
  *   m main model (null when no main-agent model call), ms models used,
- *   c Claude cost at API list prices (API-equivalent, not a bill), rc cost
+ *   c Claude cost at API list prices (API-equivalent, not a bill; null when
+ *   no call in the turn had a price), rc cost
  *   the model router's OpenRouter calls logged (billed; kept apart from c, the
  *   two are never added), o output tokens, dur ms from prompt to the turn's last event, tl tool
  *   calls, tf tool failures, sa subagents started, sk skills loaded,
@@ -62,7 +63,8 @@ export function turnsFrom(rows) {
         cat: prompt.cat ?? (prompt.sl ? 'command' : 'other'),
         m: mainModelOf(api),
         ms: [...new Set(api.map((r) => r.m).filter(Boolean))],
-        c: Math.round(cost * 1e6) / 1e6,
+        // null when no model call in the turn had a price: left out of medians, never $0.
+        c: api.some((r) => Number.isFinite(r.c)) ? Math.round(cost * 1e6) / 1e6 : null,
         ...(routed.length ? { rc: Math.round(routedCost * 1e8) / 1e8 } : {}),
         o: api.reduce((a, r) => a + (r.o ?? 0), 0),
         dur: body.length ? body[body.length - 1].t - prompt.t : 0,
