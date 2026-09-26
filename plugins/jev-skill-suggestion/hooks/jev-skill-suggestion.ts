@@ -406,6 +406,17 @@ export const register: Register = (on, options) => {
           ...projects.flatMap((root) => relative.map((file) => `${root}/${file}`)),
           ...(home ? relative.map((file) => `${home}/${file}`) : []),
         ]
+        // A plugin loaded from a folder (CLAUDE_CODE_PLUGIN_DIRS, --plugin-dir,
+        // this mod's own) is in no installed_plugins.json: its folder is
+        // named by the variable, or is this plugin's root.
+        if (plugin) {
+          const dirs = ((await $.env.get('CLAUDE_CODE_PLUGIN_DIRS')) ?? '').split(':').filter(Boolean)
+          if ($.plugin?.root) dirs.push($.plugin.root)
+          for (const dir of dirs) {
+            const trimmed = dir.replace(/\/+$/, '')
+            if (trimmed.endsWith(`/${plugin}`) || trimmed === $.plugin?.root) candidates.push(...pluginFileCandidates(trimmed, skill.name, plugin))
+          }
+        }
         if (plugin && home) {
           const installed = `${home}/.claude/plugins/installed_plugins.json`
           if (await $.fs.exists(installed)) {
