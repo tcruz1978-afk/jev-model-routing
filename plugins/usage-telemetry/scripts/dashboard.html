@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Usage Monitor</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #16181d; --muted: #5d6573; --line: #e3e6eb;
+  --accent: #3b5bdb; --good: #2b8a3e; --warn: #c77700; --bad: #c92a2a;
+  --good-bg: #ebf7ee; --warn-bg: #fff4e0; --bad-bg: #fdecec;
+  --s1: #3b5bdb; --s2: #0c8599; --s3: #e8590c; --s4: #9c36b5; --s5: #5c940d; --s6: #868e96;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa3b2; --line: #2a2f38;
+    --accent: #748ffc; --good: #69db7c; --warn: #ffc078; --bad: #ff8787;
+    --good-bg: #16261b; --warn-bg: #2b2112; --bad-bg: #2e1616;
+    --s1: #748ffc; --s2: #3bc9db; --s3: #ff922b; --s4: #da77f2; --s5: #94d82d; --s6: #adb5bd;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa3b2; --line: #2a2f38;
+  --accent: #748ffc; --good: #69db7c; --warn: #ffc078; --bad: #ff8787;
+  --good-bg: #16261b; --warn-bg: #2b2112; --bad-bg: #2e1616;
+  --s1: #748ffc; --s2: #3bc9db; --s3: #ff922b; --s4: #da77f2; --s5: #94d82d; --s6: #adb5bd;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; margin-bottom: 16px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: none; color: var(--muted); padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 14px; }
+h2 { font-size: 15px; margin: 0 0 4px; }
+.note { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.kpi { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.kpi b { display: block; font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.kpi span { color: var(--muted); font-size: 12px; }
+.health { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.card { border-radius: 10px; padding: 12px; border: 1px solid var(--line); }
+.card.good { background: var(--good-bg); border-color: color-mix(in srgb, var(--good) 35%, transparent); }
+.card.warn { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.card.bad { background: var(--bad-bg); border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+.card h3 { margin: 0 0 6px; font-size: 13.5px; display: flex; gap: 8px; align-items: center; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.good .dot { background: var(--good); } .warn .dot { background: var(--warn); } .bad .dot { background: var(--bad); }
+.card p { margin: 3px 0; font-size: 12.5px; color: var(--muted); }
+.card p strong { color: var(--ink); font-weight: 600; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.grid2 > section { margin-top: 0; }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.03em; }
+td.num, th.num { text-align: right; }
+td.wrap { white-space: normal; min-width: 180px; }
+tr:last-child td { border-bottom: 0; }
+.bar { height: 6px; border-radius: 3px; background: var(--accent); min-width: 2px; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11.5px; border: 1px solid var(--line); color: var(--muted); }
+.pill.good { color: var(--good); border-color: currentColor; } .pill.bad { color: var(--bad); border-color: currentColor; } .pill.warn { color: var(--warn); border-color: currentColor; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+svg text { fill: var(--muted); font-size: 10.5px; }
+.empty { color: var(--muted); font-size: 13px; padding: 8px 0; white-space: normal; }
+footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Claude Usage Monitor</h1>
+      <div class="sub" id="sub"></div>
+    </div>
+    <div class="controls">
+      <div class="seg" id="host" role="group" aria-label="Where">
+        <button data-v="all" aria-pressed="true">All</button><button data-v="cloud" aria-pressed="false">Cloud</button><button data-v="local" aria-pressed="false">Local</button>
+      </div>
+      <div class="seg" id="range" role="group" aria-label="Time range">
+        <button data-v="1" aria-pressed="false">24h</button><button data-v="7" aria-pressed="true">7 days</button><button data-v="30" aria-pressed="false">30 days</button><button data-v="0" aria-pressed="false">All</button>
+      </div>
+    </div>
+  </header>
+
+  <section><div class="kpis" id="kpis"></div></section>
+
+  <section>
+    <h2>Is everything working?</h2>
+    <p class="note">Green is working as intended; amber is working with a fallback; red needs attention.</p>
+    <div class="health" id="health"></div>
+  </section>
+
+  <section>
+    <h2>Which models did the work</h2>
+    <p class="note">Claude costs are what the same tokens cost at API list prices (on a subscription this is not a bill). OpenRouter costs are what OpenRouter charged.</p>
+    <div class="scroll"><table id="models"></table></div>
+    <div id="daily" style="margin-top:14px"></div>
+  </section>
+
+  <div class="grid2" style="margin-top:14px">
+    <section>
+      <h2>Skills</h2>
+      <p class="note">How each skill reached the model: Jev's pick, Claude loading it itself, or you typing <code>/name</code>. A refusal means Claude tried and was blocked.</p>
+      <div class="scroll"><table id="skills"></table></div>
+    </section>
+    <section>
+      <h2>Background agents</h2>
+      <p class="note">Subagents and workflows Claude started, and the model work they did.</p>
+      <div class="scroll"><table id="agents"></table></div>
+    </section>
+  </div>
+
+  <div class="grid2" style="margin-top:14px">
+    <section>
+      <h2>Tools</h2>
+      <p class="note">Every tool call, with failures and the median time to a result.</p>
+      <div class="scroll"><table id="tools"></table></div>
+    </section>
+    <section>
+      <h2>Connected services (MCP)</h2>
+      <p class="note">Calls per connector, rolled up from its tools.</p>
+      <div class="scroll"><table id="mcp"></table></div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Jev's recent decisions</h2>
+    <p class="note">What Jev was asked to choose for each prompt, what it ranked first, and what it picked. No prompt text is kept.</p>
+    <div class="scroll"><table id="jev"></table></div>
+  </section>
+
+  <section>
+    <h2>Model router calls (OpenRouter)</h2>
+    <p class="note">Prompts the model-router skill sent to another model: the tier Jev chose, the model asked for and the one that answered.</p>
+    <div class="scroll"><table id="router"></table></div>
+  </section>
+
+  <section>
+    <h2>Sessions</h2>
+    <div class="scroll"><table id="sessions"></table></div>
+  </section>
+
+  <footer id="foot"></footer>
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+const SERIES = ['--s1', '--s2', '--s3', '--s4', '--s5', '--s6'];
+let host = 'all', days = 7;
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const n0 = (x) => (x ?? 0).toLocaleString('en-US');
+const tok = (x) => { x = x || 0; return x >= 1e9 ? (x / 1e9).toFixed(2) + 'B' : x >= 1e6 ? (x / 1e6).toFixed(1) + 'M' : x >= 1e4 ? (x / 1e3).toFixed(0) + 'k' : x >= 1e3 ? (x / 1e3).toFixed(1) + 'k' : String(x); };
+const usd = (x) => x === null || x === undefined ? '—' : x === 0 ? '$0' : Math.abs(x) < 0.01 ? '$' + x.toPrecision(2) : '$' + x.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const pct = (a, b) => (b ? Math.round((100 * a) / b) + '%' : '—');
+const when = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
+const median = (xs) => { const v = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b); return v.length ? v[Math.floor(v.length / 2)] : null; };
+const ms = (x) => (x === null || x === undefined ? '—' : x >= 10000 ? (x / 1000).toFixed(0) + ' s' : x >= 1000 ? (x / 1000).toFixed(1) + ' s' : Math.round(x) + ' ms');
+const isClaude = (m) => /^claude-/.test(m || '');
+const shortModel = (m) => (m || '—').replace(/^claude-/, '').replace(/-\d{8}$/, '');
+const color = (i) => `var(${SERIES[i % SERIES.length]})`;
+const group = (rows, key) => { const m = new Map(); for (const r of rows) { const k = typeof key === 'function' ? key(r) : r[key]; if (k === undefined || k === null) continue; if (!m.has(k)) m.set(k, []); m.get(k).push(r); } return m; };
+const sum = (rows, f) => rows.reduce((a, r) => a + (f(r) || 0), 0);
+
+function table(el, head, rows, empty) {
+  const node = document.getElementById(el);
+  if (!rows.length) { node.innerHTML = `<tbody><tr><td class="empty">${esc(empty || 'Nothing in this range.')}</td></tr></tbody>`; return; }
+  node.innerHTML = '<thead><tr>' + head.map((h) => `<th class="${h.num ? 'num' : ''}">${esc(h.label)}</th>`).join('') + '</tr></thead><tbody>' +
+    rows.map((r) => '<tr>' + r.map((c, i) => `<td class="${head[i].num ? 'num' : ''}${head[i].wrap ? ' wrap' : ''}">${c}</td>`).join('') + '</tr>').join('') + '</tbody>';
+}
+
+function filtered() {
+  const since = days ? Date.now() - days * 86400000 : 0;
+  return DATA.rows.filter((r) => r.t >= since && (host === 'all' || (host === 'cloud' ? r.h === 'cloud' : r.h.startsWith('local'))));
+}
+
+function render() {
+  const rows = filtered();
+  const api = rows.filter((r) => r.k === 'api');
+  const tools = rows.filter((r) => r.k === 'tool');
+  const prompts = rows.filter((r) => r.k === 'prompt');
+  const decisions = rows.filter((r) => r.k === 'jev.decision');
+  const suggested = rows.filter((r) => r.k === 'jev.suggested');
+  const router = rows.filter((r) => r.k === 'router.call');
+  const keys = DATA.rows.filter((r) => r.k === 'openrouter.key');
+  const lastKey = keys[keys.length - 1];
+  const sessions = new Set(rows.filter((r) => r.s >= 0 && (r.k === 'api' || r.k === 'prompt')).map((r) => r.s));
+  const claudeCost = sum(api, (r) => r.c);
+  const orCost = sum(router, (r) => r.c);
+  const skillTool = tools.filter((r) => r.tl === 'Skill');
+
+  // KPIs
+  document.getElementById('kpis').innerHTML = [
+    [n0(sessions.size), 'sessions'],
+    [n0(prompts.length), 'prompts you sent'],
+    [n0(api.length), 'model calls'],
+    [tok(sum(api, (r) => (r.i || 0) + (r.o || 0) + (r.cr || 0) + (r.cw || 0))), 'tokens processed'],
+    [usd(claudeCost), 'Claude, API-equivalent'],
+    [usd(orCost), 'OpenRouter, routed calls'],
+    [n0(tools.length), 'tool calls'],
+    [n0(decisions.length || suggested.length), 'Jev decisions'],
+  ].map(([v, l]) => `<div class="kpi"><b>${v}</b><span>${esc(l)}</span></div>`).join('');
+
+  // Health
+  const cards = [];
+  {
+    const by = group(decisions, (r) => (r.d?.decidedBy || '').startsWith('backup') ? 'backup' : r.d?.decidedBy === 'jev' ? 'jev' : 'builtin');
+    const jevN = (by.get('jev') || []).length, backupN = (by.get('backup') || []).length, builtinN = (by.get('builtin') || []).length;
+    const picks = decisions.filter((r) => r.sk);
+    const lat = median(decisions.map((r) => (r.d?.wideMs || 0) + (r.d?.rerankMs || 0)));
+    const lastDecision = (decisions[decisions.length - 1] || suggested[suggested.length - 1])?.t;
+    let state = 'good', head = 'Jev is choosing skills';
+    if (!decisions.length && !suggested.length) { state = prompts.length ? 'bad' : 'warn'; head = prompts.length ? 'Jev made no decisions' : 'No prompts in this range'; }
+    else if (decisions.length && jevN / decisions.length < 0.8) { state = 'warn'; head = 'Jev is falling back'; }
+    cards.push([state, head, [
+      decisions.length ? `<strong>${pct(jevN, decisions.length)}</strong> decided by Jev · ${n0(backupN)} by the backup model · ${n0(builtinN)} by the built-in picker` : `${n0(suggested.length)} suggestions seen in transcripts (decision log starts with the updated plugin)`,
+      decisions.length ? `<strong>${n0(picks.length)}</strong> of ${n0(decisions.length)} prompts got a skill; median decision time <strong>${ms(lat)}</strong>` : '',
+      lastDecision ? `Last decision ${ago(lastDecision)}` : '',
+    ]]);
+  }
+  {
+    const failed = skillTool.filter((r) => r.ok === false);
+    const state = failed.length ? 'bad' : 'good';
+    cards.push([state, failed.length ? 'Some skills were refused' : 'Skills load when asked for', [
+      `<strong>${n0(skillTool.length - failed.length)}</strong> loaded by Claude · <strong>${n0(failed.length)}</strong> refused`,
+      failed.length ? 'Refused: ' + [...new Set(failed.map((r) => r.sk))].map(esc).join(', ') : '',
+      `${n0(decisions.filter((r) => r.d?.injected).length)} loaded straight into the prompt by Jev`,
+    ]]);
+  }
+  {
+    const errors = router.filter((r) => r.ok === false).length;
+    const fallbacks = router.filter((r) => r.d?.fallbackFrom).length;
+    const state = !router.length ? 'warn' : errors ? 'bad' : fallbacks ? 'warn' : 'good';
+    cards.push([state, !router.length ? 'Model router not used' : errors ? 'Model router had errors' : 'Model router answering', [
+      `<strong>${n0(router.length)}</strong> calls · ${n0(errors)} errors · ${n0(fallbacks)} served by a fallback model`,
+      router.length ? `Cost <strong>${usd(orCost)}</strong> · median ${ms(median(router.map((r) => r.d?.ms)))}` : 'Ask for another model (e.g. "have Gemini answer") to use it',
+    ]]);
+  }
+  if (lastKey) {
+    const d = lastKey.d || {};
+    const credits = d.total_credits !== null && d.total_usage !== null ? d.total_credits - d.total_usage : null;
+    const low = (d.limit_remaining !== null && d.limit !== null && d.limit_remaining < d.limit * 0.1) || (credits !== null && credits < 1);
+    cards.push([low ? 'bad' : 'good', low ? 'OpenRouter key running low' : 'OpenRouter key healthy', [
+      `Credit left <strong>${usd(credits)}</strong> of ${usd(d.total_credits)}`,
+      d.limit !== null ? `Key limit: <strong>${usd(d.limit_remaining)}</strong> left of ${usd(d.limit)} ${esc(d.limit_reset || '')}` : 'No spending limit on this key',
+      `Spend today ${usd(d.usage_daily)} · this month ${usd(d.usage_monthly)}${d.free_daily ? ` · free requests left ${n0(d.free_daily.remaining)}/${n0(d.free_daily.limit)}` : ''}`,
+      `Checked ${ago(lastKey.t)}`,
+    ]]);
+  } else {
+    cards.push(['warn', 'OpenRouter key not checked', ['The collector reads the key\'s balance hourly when OPENROUTER_API_KEY or the OpenRouter credential is set.']]);
+  }
+  {
+    const byHost = group(DATA.rows, 'h');
+    const lines = [...byHost.entries()].map(([h, rs]) => `${esc(h.startsWith('local:') ? 'Local (' + h.slice(6) + ')' : h === 'cloud' ? 'Cloud' : h || 'unknown')}: last event <strong>${ago(rs[rs.length - 1].t)}</strong>`);
+    const hasLocal = [...byHost.keys()].some((h) => h.startsWith('local'));
+    const hasCloud = byHost.has('cloud');
+    cards.push([hasLocal && hasCloud ? 'good' : 'warn', hasLocal && hasCloud ? 'Cloud and local both reporting' : 'Only ' + (hasCloud ? 'cloud' : 'local') + ' is reporting', lines]);
+  }
+  document.getElementById('health').innerHTML = cards.map(([s, h, ps]) => `<div class="card ${s}"><h3><span class="dot"></span>${esc(h)}</h3>${ps.filter(Boolean).map((p) => `<p>${p}</p>`).join('')}</div>`).join('');
+
+  // Models
+  const models = [...group([...api, ...router], 'm').entries()].map(([m, rs]) => ({
+    m, via: isClaude(m) ? 'Claude' : 'OpenRouter', calls: rs.length,
+    i: sum(rs, (r) => r.i), o: sum(rs, (r) => r.o), cr: sum(rs, (r) => r.cr), cw: sum(rs, (r) => r.cw), c: sum(rs, (r) => r.c),
+    who: [...new Set(rs.map((r) => (r.k === 'router.call' ? 'model-router' : r.a === 'main' ? 'main' : (r.a || '').replace('subagent:', ''))))].join(', '),
+  })).sort((a, b) => b.c - a.c || b.calls - a.calls);
+  const maxC = Math.max(...models.map((x) => x.c), 1e-9);
+  table('models', [{ label: 'Model' }, { label: 'Via' }, { label: 'Used by' }, { label: 'Calls', num: 1 }, { label: 'Input', num: 1 }, { label: 'Output', num: 1 }, { label: 'Cache read', num: 1 }, { label: 'Cache write', num: 1 }, { label: 'Cost', num: 1 }, { label: '' }],
+    models.map((x) => [esc(shortModel(x.m)), esc(x.via), esc(x.who), n0(x.calls), tok(x.i), tok(x.o), tok(x.cr), tok(x.cw), usd(x.c), `<div class="bar" style="width:${Math.max(2, (80 * x.c) / maxC)}px"></div>`]));
+  daily(api.concat(router));
+
+  // Skills
+  const decidedSessions = new Set(decisions.map((r) => r.s));
+  const sk = new Map();
+  const bump = (name, col, t) => { if (!name) return; const e = sk.get(name) || { jev: 0, ok: 0, bad: 0, typed: 0, last: 0 }; e[col]++; e.last = Math.max(e.last, t); sk.set(name, e); };
+  for (const r of decisions) if (r.sk) bump(r.sk, 'jev', r.t);
+  for (const r of suggested) if (!decidedSessions.has(r.s)) bump(r.sk, 'jev', r.t);
+  for (const r of skillTool) bump(r.sk, r.ok === false ? 'bad' : 'ok', r.t);
+  for (const r of prompts) if (r.sl && r.sk) bump(r.sk, 'typed', r.t);
+  table('skills', [{ label: 'Skill' }, { label: 'Jev picked', num: 1 }, { label: 'Claude loaded', num: 1 }, { label: 'Refused', num: 1 }, { label: 'You typed', num: 1 }, { label: 'Last' }],
+    [...sk.entries()].sort((a, b) => b[1].last - a[1].last).map(([name, e]) => [esc(name), n0(e.jev), n0(e.ok), e.bad ? `<span class="pill bad">${n0(e.bad)}</span>` : '0', n0(e.typed), esc(ago(e.last))]),
+    'No skills used in this range.');
+
+  // Agents
+  const spawns = tools.filter((r) => r.tl === 'Agent' || r.tl === 'Task');
+  const subApi = api.filter((r) => (r.a || '').startsWith('subagent:'));
+  const agentTypes = new Set([...spawns.map((r) => r.st || 'general-purpose'), ...subApi.map((r) => r.a.slice(9))]);
+  const agentRows = [...agentTypes].map((type) => {
+    const sp = spawns.filter((r) => (r.st || 'general-purpose') === type);
+    const work = subApi.filter((r) => r.a.slice(9) === type);
+    return [esc(type), n0(sp.length), n0(work.length), tok(sum(work, (r) => r.o)), usd(sum(work, (r) => r.c)), n0(sp.filter((r) => r.ok === false).length)];
+  });
+  const workflows = tools.filter((r) => r.tl === 'Workflow');
+  if (workflows.length) agentRows.push(['workflows', n0(workflows.length), '—', '—', '—', n0(workflows.filter((r) => r.ok === false).length)]);
+  table('agents', [{ label: 'Agent type' }, { label: 'Started', num: 1 }, { label: 'Model calls', num: 1 }, { label: 'Output', num: 1 }, { label: 'Cost', num: 1 }, { label: 'Failed', num: 1 }], agentRows, 'No background agents in this range.');
+
+  // Tools
+  const toolRows = [...group(tools, 'tl').entries()].map(([name, rs]) => ({ name, n: rs.length, bad: rs.filter((r) => r.ok === false).length, med: median(rs.map((r) => r.ms)), mc: rs[0].mc })).sort((a, b) => b.n - a.n);
+  table('tools', [{ label: 'Tool' }, { label: 'Calls', num: 1 }, { label: 'Failed', num: 1 }, { label: 'Median time', num: 1 }],
+    toolRows.slice(0, 25).map((x) => [esc(x.mc ? x.mc + ' · ' + x.name.split('__').slice(2).join('__') : x.name), n0(x.n), x.bad ? `<span class="pill ${x.bad / x.n > 0.2 ? 'bad' : 'warn'}">${n0(x.bad)} · ${pct(x.bad, x.n)}</span>` : '0', ms(x.med)]));
+  const mcpRows = [...group(tools.filter((r) => r.mc), 'mc').entries()].map(([name, rs]) => ({ name, n: rs.length, bad: rs.filter((r) => r.ok === false).length, tools: new Set(rs.map((r) => r.tl)).size })).sort((a, b) => b.n - a.n);
+  table('mcp', [{ label: 'Connector' }, { label: 'Calls', num: 1 }, { label: 'Tools used', num: 1 }, { label: 'Failed', num: 1 }],
+    mcpRows.map((x) => [esc(x.name.replace(/_/g, ' ')), n0(x.n), n0(x.tools), x.bad ? `<span class="pill warn">${n0(x.bad)}</span>` : '0']), 'No connector calls in this range.');
+
+  // Jev decisions
+  table('jev', [{ label: 'When' }, { label: 'Decided by' }, { label: 'Ranked first' }, { label: 'Needs a skill', num: 1 }, { label: 'Picked' }, { label: 'Why', wrap: 1 }, { label: 'Time', num: 1 }],
+    decisions.slice(-40).reverse().map((r) => {
+      const d = r.d || {}; const top = (d.top || [])[0];
+      return [esc(when(r.t)), esc(d.decidedBy || '—'), top ? `${esc(top.name)} <span class="pill">${top.probability === null ? '?' : top.probability.toFixed(2)}</span>` : '—',
+        d.gate === null || d.gate === undefined ? '—' : d.gate.toFixed(2), r.sk ? `<span class="pill good">${esc(r.sk)}</span>` : '<span class="pill">none</span>', esc(d.reason || ''), ms((d.wideMs || 0) + (d.rerankMs || 0))];
+    }), 'No decisions logged in this range. They start once the updated jev-skill-suggestion plugin runs.');
+
+  // Router
+  table('router', [{ label: 'When' }, { label: 'Task' }, { label: 'Tier' }, { label: 'Chosen by' }, { label: 'Asked for' }, { label: 'Answered by' }, { label: 'Tokens', num: 1 }, { label: 'Cost', num: 1 }, { label: 'Time', num: 1 }, { label: 'Status' }],
+    router.slice(-40).reverse().map((r) => {
+      const d = r.d || {};
+      const status = r.ok === false ? `<span class="pill bad">${esc((d.error || 'error').slice(0, 40))}</span>` : d.fallbackFrom ? '<span class="pill warn">fallback</span>' : d.outOfCredit ? '<span class="pill warn">free model</span>' : '<span class="pill good">ok</span>';
+      return [esc(when(r.t)), esc(d.category || '—'), esc(d.prefer || 'balanced'), esc((d.decidedBy || '—').replace('decided by ', '')), esc(d.requested || '—'), esc(r.m || '—'), tok((r.i || 0) + (r.o || 0)), usd(r.c), ms(d.ms), status];
+    }), 'No routed calls in this range.');
+
+  // Sessions
+  const ses = [...group(rows.filter((r) => r.s >= 0), 's').entries()].map(([s, rs]) => ({
+    id: DATA.sessions[s], h: rs[0].h, p: (rs.find((r) => r.p) || {}).p, start: rs[0].t, end: rs[rs.length - 1].t,
+    prompts: rs.filter((r) => r.k === 'prompt').length, calls: rs.filter((r) => r.k === 'api').length,
+    c: sum(rs.filter((r) => r.k === 'api' || r.k === 'router.call'), (r) => r.c), tools: rs.filter((r) => r.k === 'tool').length,
+    skills: [...new Set(rs.filter((r) => r.sk && (r.k === 'jev.decision' || (r.k === 'tool' && r.ok !== false))).map((r) => r.sk))],
+  })).sort((a, b) => b.end - a.end);
+  table('sessions', [{ label: 'Session' }, { label: 'Where' }, { label: 'Project' }, { label: 'Started' }, { label: 'Prompts', num: 1 }, { label: 'Model calls', num: 1 }, { label: 'Tools', num: 1 }, { label: 'Cost', num: 1 }, { label: 'Skills used', wrap: 1 }],
+    ses.slice(0, 50).map((x) => [`<code>${esc(String(x.id).slice(0, 8))}</code>`, esc(x.h === 'cloud' ? 'cloud' : 'local'), esc(x.p || '—'), esc(when(x.start)), n0(x.prompts), n0(x.calls), n0(x.tools), usd(x.c), esc(x.skills.join(', ') || '—')]));
+
+  const first = DATA.rows[0], last = DATA.rows[DATA.rows.length - 1];
+  document.getElementById('sub').textContent = first ? `${n0(DATA.rows.length)} events · ${when(first.t)} to ${when(last.t)} · built ${ago(Date.parse(DATA.generatedAt))}` : 'No events yet';
+  document.getElementById('foot').innerHTML = `Built ${esc(new Date(DATA.generatedAt).toLocaleString())} by the usage-telemetry plugin (<code>tcruz1978-afk/jev-model-routing</code>). Prompts and tool inputs are never recorded.`;
+}
+
+function daily(rows) {
+  const el = document.getElementById('daily');
+  const byDay = group(rows, (r) => new Date(r.t).toISOString().slice(0, 10));
+  const dayKeys = [...byDay.keys()].sort();
+  if (dayKeys.length < 1) { el.innerHTML = ''; return; }
+  const totals = new Map();
+  for (const r of rows) totals.set(r.m, (totals.get(r.m) || 0) + (r.c || 0));
+  const top = [...totals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([m]) => m);
+  const keyOf = (m) => (top.includes(m) ? m : 'other');
+  const series = [...top, ...(totals.size > top.length ? ['other'] : [])];
+  const stacks = dayKeys.map((d) => { const s = {}; for (const r of byDay.get(d)) s[keyOf(r.m)] = (s[keyOf(r.m)] || 0) + (r.c || 0); return s; });
+  const max = Math.max(...stacks.map((s) => Object.values(s).reduce((a, b) => a + b, 0)), 1e-9);
+  const W = Math.max(320, Math.min(1100, dayKeys.length * 36)), H = 150, pad = 26, bw = Math.min(26, (W - pad) / dayKeys.length - 6);
+  let svg = `<svg viewBox="0 0 ${W} ${H + 20}" width="${W}" style="max-width:100%;height:auto;display:block" role="img" aria-label="Cost per day by model">`;
+  svg += `<text x="0" y="10">${usd(max)}</text><line x1="${pad}" x2="${W}" y1="${H}" y2="${H}" stroke="var(--line)"/>`;
+  dayKeys.forEach((d, i) => {
+    let y = H; const x = pad + i * ((W - pad) / dayKeys.length) + 3;
+    series.forEach((m, j) => { const v = stacks[i][m] || 0; if (!v) return; const h = ((H - 16) * v) / max; y -= h; svg += `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(h, 1)}" fill="${color(j)}"><title>${esc(d)} · ${esc(shortModel(m))}: ${usd(v)}</title></rect>`; });
+    if (dayKeys.length <= 14 || i % Math.ceil(dayKeys.length / 10) === 0) svg += `<text x="${x}" y="${H + 14}">${d.slice(5)}</text>`;
+  });
+  el.innerHTML = '<div class="note" style="margin:0 0 6px">Cost per day</div>' + svg + '</svg><div class="legend">' + series.map((m, j) => `<span><i style="background:${color(j)}"></i>${esc(m === 'other' ? 'other' : shortModel(m))}</span>`).join('') + '</div>';
+}
+
+function wire(id, set) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    for (const x of el.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b));
+    set(b.dataset.v);
+    try { localStorage.setItem('cum.' + id, b.dataset.v); } catch {}
+    render();
+  });
+  try { const saved = localStorage.getItem('cum.' + id); const b = saved && el.querySelector(`[data-v="${saved}"]`); if (b) { for (const x of el.querySelectorAll('button')) x.setAttribute('aria-pressed', String(x === b)); set(saved); } } catch {}
+}
+wire('host', (v) => (host = v));
+wire('range', (v) => (days = Number(v)));
+render();
+</script>
+</body>
+</html>

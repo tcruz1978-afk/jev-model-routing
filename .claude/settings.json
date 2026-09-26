@@ -8,7 +8,8 @@
     }
   },
   "enabledPlugins": {
-    "jev-skill-suggestion@jev-model-routing": true
+    "jev-skill-suggestion@jev-model-routing": true,
+    "usage-telemetry@jev-model-routing": true
   },
   "env": {
     "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"

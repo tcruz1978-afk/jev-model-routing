@@ -1,0 +1,11 @@
+{
+  "description": "After every turn and at session end, reads what the transcripts gained since the last run and records it (and ships it, when USAGE_INGEST_URL is set). Never blocks the session: errors are swallowed and it gives up after its timeout.",
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/collect.mjs\" --hook", "timeout": 30 }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/collect.mjs\" --hook --flush", "timeout": 30 }] }
+    ]
+  }
+}

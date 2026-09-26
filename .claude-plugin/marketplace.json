@@ -11,6 +11,11 @@
       "name": "jev-skill-suggestion",
       "source": "./plugins/jev-skill-suggestion",
       "description": "Jev picks at most one skill per prompt (via OpenRouter, with an OpenRouter chat model as backup) and a model-router skill sends prompts to the best OpenRouter model."
+    },
+    {
+      "name": "usage-telemetry",
+      "source": "./plugins/usage-telemetry",
+      "description": "Records which model served each request and what it cost, every tool, skill, MCP and subagent call, Jev's decisions and the model router's OpenRouter calls, and builds a dashboard from them."
     }
   ]
 }
