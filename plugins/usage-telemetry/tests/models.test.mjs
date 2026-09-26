@@ -310,3 +310,20 @@ test('only what a person typed is a prompt: notifications, peers and continuatio
   assert.equal(typedByPerson({ message: { content: 'This session is being continued from a previous conversation that ran out' } }), false)
   assert.equal(typedByPerson({ message: { content: [{ type: 'text', text: 'plain old prompt' }] } }), true)
 })
+
+test('Jev deciding counts a chat from when the current Jev loaded (its group record), not from stray earlier decisions', () => {
+  const fix = Date.parse('2026-09-26T14:16:47Z')
+  const at = (m) => fix + m * 60000
+  const rows = [
+    { k: 'prompt', t: at(100), s: 0, h: 'cloud', a: 'main' },
+    { k: 'jev.decision', t: at(101), s: 0, h: 'cloud', d: { decidedBy: 'jev' } }, // a test run's line
+    { k: 'prompt', t: at(110), s: 0, h: 'cloud', a: 'main' },
+    { k: 'prompt', t: at(120), s: 0, h: 'cloud', a: 'main' },
+    { k: 'jev.arm', t: at(200), s: 0, h: 'cloud', d: { arm: 'on' } },
+    { k: 'prompt', t: at(200), s: 0, h: 'cloud', a: 'main' },
+    { k: 'jev.decision', t: at(200) + 500, s: 0, h: 'cloud', d: { decidedBy: 'jev' } },
+  ]
+  const c = runChecks({ fixes: { skills: fix, jevLog: fix }, rows, generatedAt: at(260), days: 1, since: at(0) }).checks.find((x) => x.id === 'jev-deciding')
+  assert.equal(c.figure, '100% decided')
+  assert.equal(c.stats.left.none, 3)
+})
