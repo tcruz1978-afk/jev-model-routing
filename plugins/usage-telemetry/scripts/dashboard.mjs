@@ -172,7 +172,9 @@ export function buildPayload(events, { source = 'local', now = Date.now(), days 
 
 export function render(payload, generatedAt) {
   const template = readFileSync(join(here, 'dashboard.html'), 'utf8')
-  const checks = readFileSync(join(here, 'checks.mjs'), 'utf8').replace(/^export /gm, '')
+  // The page runs the same arithmetic (checks.mjs) and words (present.mjs) the tests do.
+  const inline = (file) => readFileSync(join(here, file), 'utf8').replace(/^import [^\n]*\n/gm, '').replace(/^export /gm, '')
+  const checks = inline('checks.mjs') + '\n' + inline('present.mjs')
   const data = { ...payload, generatedAt: payload.generatedAt ?? (generatedAt ?? new Date()).toISOString() }
   const json = JSON.stringify(data).replace(/</g, '\\u003c')
   // Functions, not strings: `$` in the inserted text must stay literal.

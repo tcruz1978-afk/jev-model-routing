@@ -51,7 +51,10 @@ population, the previous equal window and the owner's target (approved
 2026-09-26). A check with no data reads "not tracked", never green, and a
 previous window from before collection began reads "not tracked" too. Under them: the landed % and median
 cost per turn trends, where the Claude work went, refused skills, and tools
-failing above target. The arithmetic lives in `scripts/checks.mjs`.
+failing above target, all inside one closed "Details" section. Above the
+checks, a plain "What to do" list says what to do, who does it and when it's
+done. The arithmetic lives in `scripts/checks.mjs` and the page's words in
+`scripts/present.mjs`.
 
 Ask Claude to "refresh my usage dashboard" (the `usage-dashboard` skill), or
 build it by hand:

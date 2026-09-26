@@ -546,3 +546,169 @@ test('the page lists the eight approved targets and words the 24h trend in block
   assert.ok(!html.includes("'4 hours' :"))
   assert.ok(html.includes('firstEventAt'))
 })
+
+// ---------- the plain-words page: actions, one line per check, no jargon ----------
+
+import { FIXES, HOW_TO, actionsFor, whenPlain } from '../scripts/checks.mjs'
+import { actionsHtml, bannedIn, checksHtml, plainChecks, spendPlain, usdTop, verdictPlain, visibleText } from '../scripts/present.mjs'
+import vm from 'node:vm'
+
+const chk = (id, state, facts = {}, extra = {}) => ({ id, state, targeted: true, facts, ...extra })
+const texts = (list) => list.map((a) => a.text)
+
+test('actionsFor: Jev stopped mid-chat → start a new chat; never logged → turn on the latest Jev (with steps)', () => {
+  const stopped = actionsFor([chk('jev-deciding', 'attention', { chats: [{ s: 0, h: 'cloud', stoppedMidChat: true, neverLogged: false }] })])
+  assert.deepEqual(stopped.map((a) => [a.who, a.text]), [['You', "Start a new chat — this one started before today's Jev update."]])
+  assert.match(stopped[0].doneWhen, /new requests show Jev's pick/)
+  const never = actionsFor([chk('jev-deciding', 'attention', { chats: [{ s: 1, h: 'cloud', stoppedMidChat: false, neverLogged: true }, { s: 2, h: 'local:pc', neverLogged: true }] })])
+  assert.deepEqual(texts(never), ['Turn on the latest Jev in your cloud setup.', 'Turn on the latest Jev on your PC.'])
+  assert.equal(never[0].how, HOW_TO.jevCloud)
+  assert.equal(never[1].how, HOW_TO.jevPc)
+})
+
+test('actionsFor: partial picking merges into the Jev logging item (no duplicate)', () => {
+  const chats = [{ s: 0, h: 'cloud', stoppedMidChat: true }]
+  const list = actionsFor([chk('jev-deciding', 'attention', { chats }), chk('jev-picking', 'partial')])
+  assert.equal(list.length, 1)
+  const failing = actionsFor([chk('jev-deciding', 'pass', { chats }), chk('jev-picking', 'attention')])
+  assert.deepEqual(failing.map((a) => [a.who, a.text]), [['Claude', 'Ask Claude to run the daily routing check now.']])
+})
+
+test('actionsFor: skills blocked before the fix clear on their own; blocked after it → tell Claude', () => {
+  const before = actionsFor([chk('skills', 'attention', { refused: [{ skill: 'dataviz', t: FIXES.skills + 60000, chatStart: FIXES.skills - 60000 }] })])
+  assert.equal(before[0].who, 'Nothing')
+  assert.match(before[0].text, /fixed in new chats/)
+  const after = actionsFor([chk('skills', 'attention', { refused: [{ skill: 'dataviz', t: FIXES.skills + 7200000, chatStart: FIXES.skills + 3600000 }, { skill: 'pdf', t: FIXES.skills + 7300000, chatStart: FIXES.skills + 3600000 }] })])
+  assert.deepEqual([after[0].who, after[0].text], ['You', 'Tell Claude "skills are being blocked" and name them: dataviz, pdf.'])
+})
+
+test('actionsFor: landing, router, credit and reporting states', () => {
+  assert.equal(actionsFor([chk('landing', 'attention')])[0].who, 'You')
+  assert.deepEqual(actionsFor([chk('router', 'thin')]).map((a) => [a.who, a.text]), [['Nothing', 'Nothing to do — the model router is judged after 10 uses.']])
+  assert.equal(actionsFor([chk('router', 'attention')])[0].who, 'Claude')
+  assert.deepEqual(texts(actionsFor([chk('openrouter', 'attention', {}, { account: true })])), ['Add credit at openrouter.ai → Settings → Credits.'])
+  assert.deepEqual(actionsFor([chk('openrouter', 'attention', {}, { account: true })], { host: 'cloud' }), [], 'account-wide checks are left out under a machine filter')
+  assert.ok(actionsFor([chk('openrouter', 'untracked', null, { account: true, facts: null })])[0].how)
+  const rep = (state, facts) => actionsFor([chk('reporting', state, { now: [], quiet: [], everLocal: true, everCloud: true, host: 'all', ...facts })], { end: END, prevStarts: END + 14 * DAY })
+  assert.deepEqual(texts(rep('untracked', {})), [`Nothing to do — comparisons start ${whenPlain(END + 14 * DAY, END)}.`])
+  assert.deepEqual(texts(rep('attention', { quiet: [{ h: 'local:pc', last: END - 9 * DAY }] })), ['Open a chat on your PC so it reports again.'])
+  assert.deepEqual(texts(rep('pass', { everLocal: false })), ['Run one chat on your PC in these projects, so it reports too.'])
+  assert.equal(whenPlain(END + DAY, END), 'tomorrow')
+})
+
+test('actionsFor: You first by severity, then Claude, then Nothing; max 5; duplicates collapse; all passing → nothing', () => {
+  const list = actionsFor([
+    chk('router', 'thin'),
+    chk('jev-picking', 'attention'),
+    chk('landing', 'attention'),
+    chk('openrouter', 'attention', {}, { account: true }),
+    chk('reporting', 'untracked', { now: [], quiet: [], everLocal: false, host: 'all' }),
+    chk('jev-deciding', 'attention', { chats: [{ stoppedMidChat: true }, { stoppedMidChat: true }] }),
+  ], { stale: true, builtAgo: '8 days', end: END, prevStarts: END + DAY })
+  assert.deepEqual(list.map((a) => a.who), ['You', 'You', 'You', 'You', 'You'])
+  assert.match(list[0].text, /refresh this page — it is 8 days old/)
+  assert.equal(list.length, 5)
+  assert.equal(new Set(texts(list)).size, 5)
+  const all = actionsFor([chk('router', 'thin'), chk('jev-picking', 'attention'), chk('landing', 'attention')])
+  assert.deepEqual(all.map((a) => a.who), ['You', 'Claude', 'Nothing'])
+  assert.deepEqual(actionsFor([chk('landing', 'pass'), chk('skills', 'pass')]), [])
+  assert.equal(visibleText(actionsHtml([])), 'Nothing to do.')
+})
+
+/** Every check state in one realistic build: attention, partial, pass, thin, not tracked. */
+function mixedBuild() {
+  const ev = []
+  const at = (m) => new Date(END - m * 60000).toISOString()
+  for (let i = 0; i < 22; i++) {
+    ev.push({ id: 'p' + i, kind: 'prompt', ts: at(200 - i * 8), session: 's', host: 'cloud', agent: 'main', data: { correction: i === 5 } })
+    if (i < 5) ev.push({ id: 'd' + i, kind: 'jev.decision', ts: at(200 - i * 8), session: 's', host: 'cloud', skill: 'pdf', data: { decidedBy: 'jev' } })
+    ev.push({ id: 'a' + i, kind: 'api', ts: at(199 - i * 8), session: 's', host: 'cloud', agent: 'main', model: 'claude-opus-5-5', cost_usd: 2.13 })
+  }
+  for (let i = 0; i < 11; i++) ev.push({ id: 'dx' + i, kind: 'jev.decision', ts: at(190 - i), session: 's', host: 'cloud', data: { decidedBy: 'jev' } })
+  ev.push({ id: 'm', kind: 'jev.miss', ts: at(150), session: 's', host: 'cloud', skill: null, data: { signal: 'picked-then-corrected', jevPick: 'pdf' } })
+  for (let i = 0; i < 5; i++) ev.push({ id: 'k' + i, kind: 'tool', ts: at(100 - i), session: 's', host: 'cloud', agent: 'main', tool: 'Skill', skill: 'dataviz', ok: false })
+  ev.push({ id: 'r', kind: 'router.call', ts: at(90), session: 's', host: 'cloud', model: 'z-ai/glm', cost_usd: 0.000018, ok: true, data: {} })
+  ev.push({ id: 'key', kind: 'openrouter.key', ts: at(5), host: 'cloud', cost_usd: 0.5, data: { limit: 50, limit_remaining: 49.5, limit_reset: 'daily', usage_daily: 0.24, usage_weekly: 0.56, usage_monthly: 0.56, total_credits: 10, total_usage: 0.71 } })
+  return buildPayload(ev, { now: END })
+}
+
+function topBlock(data, { days = 7, host = 'all', stale = false } = {}) {
+  const R = runChecks({ rows: data.rows, turns: data.turns, generatedAt: END, days, host, since: Date.parse(data.firstEventAt) })
+  const rows = plainChecks(R, { days, end: END, host, stale, builtAgo: '8 days' })
+  const actions = actionsFor(R.checks, { stale, builtAgo: '8 days', end: END, prevStarts: R.coverage.prevStarts, host })
+  return { R, rows, actions, checks: checksHtml(rows), todo: actionsHtml(actions), verdict: verdictPlain(R, { stale, builtAgo: '8 days', host }), spend: spendPlain(R, data.rows, { days, end: END, host }) }
+}
+
+test('the top block: exactly one line per check, panels and Details closed by default', () => {
+  const t = topBlock(mixedBuild())
+  assert.equal((t.checks.match(/<details class="check /g) || []).length, 7)
+  assert.equal((t.checks.match(/<summary>/g) || []).length, 7)
+  for (const li of t.checks.split('<li><details').slice(1)) {
+    const summary = li.slice(li.indexOf('<summary>'), li.indexOf('</summary>'))
+    assert.equal((summary.match(/class="name"/g) || []).length, 1)
+    assert.equal((summary.match(/class="figure"/g) || []).length, 1)
+    assert.ok(!/<(br|p|div|ul)\b/.test(summary), 'nothing but one line in a summary')
+  }
+  assert.ok(!/<details[^>]*\sopen/.test(t.checks), 'no check starts open')
+  const page = render(mixedBuild())
+  assert.match(page, /<details class="more" id="more">/)
+  assert.ok(!/<details[^>]*\bopen\b[^>]*>/.test(page.replace(/details\[open\]|\.check\[open\]|\.options\[open\]|\.more\[open\]/g, '')), 'Details and Options start closed')
+  assert.deepEqual(t.rows.map((r) => r.state), ['attention', 'attention', 'partial', 'pass', 'pass', 'thin', 'untracked'], 'most important first')
+})
+
+test('the top block reads like the approved wireframe', () => {
+  const t = topBlock(mixedBuild())
+  const by = Object.fromEntries(t.rows.map((r) => [r.id, r]))
+  assert.equal(t.verdict.text, '2 need attention')
+  assert.deepEqual([by['jev-deciding'].icon, by['jev-deciding'].name, by['jev-deciding'].figure], ['✕', "Jev's picks are missing for most requests", '23% of requests · target 95%'])
+  assert.deepEqual([by.skills.name, by.skills.figure], ['Claude was blocked from some skills', '5 of 5 blocked · target 0'])
+  assert.deepEqual([by['jev-picking'].icon, by['jev-picking'].figure], ['◐', '6% wrong · partly checked'])
+  assert.deepEqual([by.openrouter.name, by.openrouter.figure], ['OpenRouter has enough credit', '$9.29 left'])
+  assert.deepEqual([by.router.icon, by.router.figure], ['–', 'too few uses to judge'])
+  assert.match(by.reporting.figure, /^starts /)
+  assert.deepEqual([t.spend.label, t.spend.claude, t.spend.openrouter], ['This week', '$47', '$0.56'])
+  assert.match(t.spend.tooltip, /OpenRouter says you've spent \$0\.56 this week/)
+  for (const r of t.rows) assert.ok(r.todo, r.id)
+  assert.equal(by.landing.todo, 'Nothing to do.')
+  assert.equal(by['jev-deciding'].todo, t.actions.find((a) => a.check === 'jev-deciding').text, 'the panel repeats the list')
+  assert.ok(t.checks.includes('aria-label="Needs attention"'))
+  assert.equal(verdictPlain(t.R, { stale: true, builtAgo: '8 days' }).text, 'Out of date — built 8 days ago')
+  assert.deepEqual([usdTop(47.43), usdTop(9.289), usdTop(0.558), usdTop(0.000018), usdTop(0)], ['$47', '$9.29', '$0.56', 'under $0.01', '$0'])
+})
+
+test('no jargon: the top block, panels and action list pass the banned-word scan', () => {
+  for (const opts of [{}, { days: 1 }, { days: 90 }, { host: 'local' }, { host: 'cloud' }, { stale: true }]) {
+    const t = topBlock(mixedBuild(), opts)
+    const top = [visibleText(t.checks, { collapsed: true }), visibleText(t.todo), t.verdict.text, t.verdict.sub, `${t.spend.label} Claude ${t.spend.claude} (at pay-as-you-go prices) · OpenRouter ${t.spend.openrouter}`].join(' \n ')
+    assert.deepEqual(bannedIn(top), [], `top block ${JSON.stringify(opts)}: ${top}`)
+    assert.deepEqual(bannedIn(visibleText(t.checks)), [], `panels ${JSON.stringify(opts)}`)
+  }
+  const empty = topBlock(buildPayload([{ id: 'x', kind: 'api', ts: new Date(END - 60000).toISOString(), host: 'cloud', cost_usd: 1, model: 'claude-opus-5-5' }], { now: END }))
+  assert.deepEqual(bannedIn(visibleText(empty.checks) + visibleText(empty.todo)), [])
+  assert.ok(bannedIn('the decision log for this session').length === 2, 'the scan itself catches jargon')
+  assert.deepEqual(bannedIn(TARGET_NOTES.join(' ')), [], 'the targets list is plain too')
+  // The pasted values live only behind "Show me how".
+  assert.ok(visibleText(actionsHtml([{ text: 'Turn on the latest Jev in your cloud setup.', who: 'You', doneWhen: 'x', how: HOW_TO.jevCloud }])).indexOf('CLAUDE_CODE') < 0)
+})
+
+test('the page scripts compile together: no name declared twice', () => {
+  const page = render(mixedBuild())
+  const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
+  assert.equal(scripts.length, 2)
+  assert.doesNotThrow(() => new vm.Script(scripts.join('\n;\n')))
+})
+
+test('the action list holds only things someone has to do; self-clearing items get one quiet line', async () => {
+  const { actionsHtml } = await import('../scripts/present.mjs')
+  const html = actionsHtml([
+    { text: 'Start a new chat.', who: 'You', doneWhen: 'new requests show a pick.' },
+    { text: 'Nothing to do — judged after 10 uses.', who: 'Nothing', doneWhen: 'used 10 times.' },
+    { text: 'Nothing to do — comparisons start Oct 10.', who: 'Nothing', doneWhen: "it's Oct 10." },
+  ])
+  assert.equal((html.match(/<li>/g) || []).length, 1)
+  assert.ok(!html.includes('Nothing to do —'))
+  assert.ok(html.includes('2 other items clear on their own'))
+  const none = actionsHtml([{ text: 'Nothing to do — x.', who: 'Nothing', doneWhen: 'y.' }])
+  assert.ok(none.startsWith('<p class="none">Nothing to do.</p>'))
+  assert.ok(none.includes('1 other item clears on its own'))
+})

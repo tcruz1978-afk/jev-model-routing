@@ -61,8 +61,20 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
 
 ## What the page computes
 
-All arithmetic is in `scripts/checks.mjs` (inlined into the page, tested by
-`tests/lib.test.mjs`). Ranges run back from the build time, never from when
+All arithmetic is in `scripts/checks.mjs`, and every visible word in
+`scripts/present.mjs`; both are inlined into the page and tested by
+`tests/lib.test.mjs`.
+
+The layout is the owner's approved one, for a busy owner rather than an
+engineer: the question "Is everything working?" with a plain verdict ("2 need
+attention", "All clear", "Out of date — built 8 days ago"); a numbered "What
+to do" list (at most 5: yours first, then Claude's, then ones that clear on
+their own, each with when it's done; `actionsFor` in checks.mjs); then one
+line per check (icon, plain name, one figure and its target, › to open a
+short panel); then "This week Claude $X (at pay-as-you-go prices) ·
+OpenRouter $Y". Everything else sits in one closed "Details" section. No code,
+paths or internal terms appear in the top block (a test scans for them);
+click-by-click steps live only behind "Show me how". Ranges run back from the build time, never from when
 the page is opened; a page opened more than 26 h after its build shows an
 "Out of date" banner, greys every section, and turns the verdict grey.
 
