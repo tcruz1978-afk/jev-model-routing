@@ -113,20 +113,24 @@ const near = (list, r, ms = TARGETS.matchMs) => list.some((d) => d.s === r.s && 
  * window still counts.
  */
 export function jevChats(all, fixes = FIXES) {
-  const start = new Map(), logged = new Set(), off = new Set(), firstLog = new Map()
+  const start = new Map(), logged = new Set(), off = new Set(), firstLog = new Map(), firstArm = new Map()
   for (const r of all) {
     if (!(r.s >= 0)) continue
     if (!(start.get(r.s) <= r.t)) start.set(r.s, r.t)
     if (r.k === 'jev.decision' || r.k === 'jev.arm') {
       logged.add(r.s)
       if (!(firstLog.get(r.s) <= r.t)) firstLog.set(r.s, r.t)
+      if (r.k === 'jev.arm' && !(firstArm.get(r.s) <= r.t)) firstArm.set(r.s, r.t)
     }
     if (r.k === 'jev.arm' && r.d?.arm === 'off') off.add(r.s)
   }
   const why = (s) => (start.get(s) < fixes.jevLog ? 'old' : off.has(s) ? 'off' : !logged.has(s) ? 'none' : null)
   // A prompt before a chat's first Jev record came before the current Jev was loaded there (a chat
   // restarted onto new code): counted with "never logged", not as a miss.
-  const whyPrompt = (p) => why(p.s) ?? (p.t < firstLog.get(p.s) - TARGETS.matchMs ? 'none' : null)
+  // The current Jev logs its group (jev.arm) at its first prompt in a chat, so that marks when it loaded;
+  // without one, the first decision does (decisions written by a chat's own test runs come before it).
+  const loadedAt = (s) => firstArm.get(s) ?? firstLog.get(s)
+  const whyPrompt = (p) => why(p.s) ?? (p.t < loadedAt(p.s) - TARGETS.matchMs ? 'none' : null)
   return { why, whyPrompt }
 }
 
