@@ -38,14 +38,14 @@ export const TARGETS = {
 /** The approved targets in words, for the page's note. */
 export const TARGETS_APPROVED = '2026-09-26'
 export const TARGET_NOTES = [
-  'Jev is deciding: at least 95% of your prompts get a logged Jev decision within 2 min',
-  'Jev is picking right: at most 10% of decisions flagged as misroutes',
-  'Skills load: no refusals',
-  'Answers land: at least 80% of turns with an outcome',
-  'Model router: at most 10% of routed calls error or fall back',
-  'OpenRouter credit: attention under 10% of credit or of the key\'s limit left',
-  'Tools: no tool fails more than 10% of its calls (coloured from 10 calls)',
-  'Reporting: every host that reported in the previous window reports in this one',
+  'Jev picks a skill for at least 95 in 100 of your requests, within 2 minutes',
+  "No more than 1 in 10 of Jev's picks is wrong",
+  'Claude is never blocked from a skill',
+  'At least 8 in 10 of your requests land',
+  "No more than 1 in 10 of the model router's answers fail or come from a backup model",
+  'A warning when less than 10% of your OpenRouter credit or spending cap is left',
+  'No tool fails more than 1 in 10 times (judged from 10 uses)',
+  'Every machine that reported in the period before reports again',
 ]
 
 export const CHECK_IDS = ['jev-deciding', 'jev-picking', 'skills', 'landing', 'router', 'openrouter', 'reporting']
@@ -363,6 +363,7 @@ function checkCredit(rows, end, ctx) {
     value: creditShare ?? limitShare,
     lines,
     reconciliation: rec,
+    facts: { asOf: last.t, credits, total: d.total_credits ?? null, creditShare, limitLeft: d.limit_remaining ?? null, limit: d.limit ?? null, limitReset: d.limit_reset ?? null, limitShare, earlierCredit, earlierAt: earlier?.t ?? null, prevUsage: Number.isFinite(prevUsage) ? prevUsage : null, period },
   }
 }
 
@@ -457,8 +458,184 @@ export function runChecks({ rows, turns = [], generatedAt, days, host = 'all', s
     checkReporting(rows, cur, prev, host, end, ctx),
   ]
   const covered = first === null ? 0 : Math.max(0, end - Math.max(w.from, first))
-  const coverage = { since: first, covered, partial: first === null || first > w.from, prevTracked: prevOk(ctx) }
+  // prevStarts: when the previous window will lie wholly inside the data, so comparisons begin.
+  const coverage = { since: first, covered, partial: first === null || first > w.from, prevTracked: prevOk(ctx), prevStarts: first === null ? null : first + 2 * days * DAY }
+  attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end })
   return { window: w, checks, verdict: verdictOf(checks, host), cur, prev, tcur, tprev, coverage, prevNote: prevNote(ctx) }
+}
+
+// ---------- facts: the numbers behind each check, for the plain-words page and the actions ----------
+
+/** Per-chat view of Jev's logging: chats whose decisions stopped part-way, and chats that never logged one. */
+export function decisionChats(cur, all) {
+  const chats = new Map()
+  for (const r of cur) if (isPrompt(r) && r.s >= 0) chats.set(r.s, { s: r.s, h: r.h, prompts: [] })
+  for (const r of cur) if (isPrompt(r) && chats.has(r.s)) chats.get(r.s).prompts.push(r.t)
+  const out = []
+  for (const c of chats.values()) {
+    const decided = all.filter((r) => r.k === 'jev.decision' && r.s === c.s).map((r) => r.t)
+    const lastDecision = decided.length ? Math.max(...decided) : null
+    const after = lastDecision === null ? c.prompts.length : c.prompts.filter((t) => t > lastDecision + TARGETS.matchMs).length
+    out.push({ s: c.s, h: c.h, prompts: c.prompts.length, decisions: decided.length, lastDecision, after, stoppedMidChat: decided.length > 0 && after > 0, neverLogged: decided.length === 0 })
+  }
+  return out
+}
+
+/** When a chat started: its first event of any kind. */
+export function chatStart(rows, s) {
+  let t = Infinity
+  for (const r of rows) if (r.s === s && r.t < t) t = r.t
+  return Number.isFinite(t) ? t : null
+}
+
+function attachFacts(checks, { rows, cur, prev, tcur, tprev, host, end }) {
+  const by = Object.fromEntries(checks.map((c) => [c.id, c]))
+  const d = by['jev-deciding']
+  d.facts = { ...decidingStats(cur), prev: decidingStats(prev), chats: decisionChats(cur, rows) }
+  const decs = cur.filter((r) => r.k === 'jev.decision')
+  const misses = cur.filter((r) => r.k === 'jev.miss').sort((x, y) => y.t - x.t)
+  by['jev-picking'].facts = {
+    decisions: decs.length,
+    misses: misses.length,
+    recent: misses.slice(0, 3).map((m) => ({ t: m.t, signal: m.d?.signal ?? null, pick: m.d?.jevPick ?? null, expected: m.sk ?? null })),
+    first: decs.length ? Math.min(...decs.map((r) => r.t)) : null,
+    last: decs.length ? Math.max(...decs.map((r) => r.t)) : null,
+    prevDecisions: prev.filter((r) => r.k === 'jev.decision').length,
+    prevMisses: prev.filter((r) => r.k === 'jev.miss').length,
+  }
+  const sk = skillStats(cur), psk = skillStats(prev)
+  by.skills.facts = { calls: sk.calls, refused: sk.refused.map((r) => ({ skill: r.sk ?? 'unnamed', t: r.t, s: r.s, chatStart: chatStart(rows, r.s) })), prevCalls: psk.calls, prevRefused: psk.refused.length }
+  by.landing.facts = { ...landStats(tcur), prev: landStats(tprev) }
+  const ro = routerStats(cur), pro = routerStats(prev)
+  const lastCall = ro.calls.length ? ro.calls.reduce((x, y) => (y.t > x.t ? y : x)) : null
+  by.router.facts = { n: ro.n, errors: ro.errors, fallbacks: ro.fallbacks, rate: ro.rate, prev: { n: pro.n, rate: pro.rate }, last: lastCall && { t: lastCall.t, task: lastCall.d?.category ?? null, model: lastCall.m ?? null, ok: lastCall.ok !== false && !lastCall.d?.fallbackFrom } }
+  by.openrouter.facts ??= null
+  const hostsBy = (list) => {
+    const m = new Map()
+    for (const r of list) m.set(r.h, Math.max(m.get(r.h) ?? 0, r.t))
+    return m
+  }
+  const now = hostsBy(cur), before = hostsBy(prev), ever = hostsBy(rows.filter((r) => r.t <= end))
+  by.reporting.facts = {
+    now: [...now.entries()].map(([h, last]) => ({ h, last })).sort((a, b) => b.last - a.last),
+    quiet: [...before.keys()].filter((h) => !now.has(h)).map((h) => ({ h, last: ever.get(h) })),
+    prevHosts: before.size,
+    everLocal: [...ever.keys()].some((h) => String(h).startsWith('local')),
+    everCloud: ever.has('cloud'),
+    host,
+  }
+}
+
+// ---------- actions: what to do, in plain words, from each check's state and facts ----------
+
+/**
+ * Fixes shipped, with when they landed. A chat that started before a fix
+ * still runs the old code; new chats get it.
+ * - skills and Jev logging: commit 98eb9d7 ("Fix Jev picks that could never
+ *   load; keep bundled skills on; log decisions", #2).
+ */
+export const FIXES = { skills: Date.parse('2026-09-26T14:16:47Z'), jevLog: Date.parse('2026-09-26T14:16:47Z') }
+
+/** Click-by-click steps, the only place a value to paste may appear. */
+export const HOW_TO = {
+  jevCloud: [
+    'Open claude.ai/code and start or open any chat.',
+    'Click the cloud setup menu at the top of the chat, point at your setup, and click its settings (gear) icon.',
+    'Under "Setup script", make sure this line is there: git clone --depth 1 https://github.com/tcruz1978-afk/jev-model-routing /root/.claude/jev-model-routing || true',
+    'Under "Environment variables", make sure this line is there: CLAUDE_CODE_PLUGIN_DIRS=/root/.claude/jev-model-routing/plugins/jev-skill-suggestion',
+    'Click "Save changes", then start a new chat. Chats that were already open keep the old setup.',
+  ],
+  jevPc: [
+    'Open Claude on your PC.',
+    'Type this and press Enter: /plugin marketplace update jev-model-routing',
+    'Then type this and press Enter: /plugin install jev-skill-suggestion@jev-model-routing',
+    'Quit Claude, start it again, and open a new chat.',
+  ],
+  openrouterKey: [
+    'Open claude.ai/code, click the cloud setup menu at the top of a chat, and click the settings (gear) icon of your setup.',
+    'Under "API credentials", click "Add credential". Name it OpenRouter, allow the website openrouter.ai, and paste your OpenRouter key as the value.',
+    'Click "Connect", then start a new chat.',
+  ],
+}
+
+const WHO_ORDER = { You: 0, Claude: 1, Nothing: 2 }
+const SEVERITY = { attention: 0, partial: 1, stale: 0, untracked: 2, thin: 2 }
+
+/**
+ * What to do, most important first: You items (by severity), then Claude,
+ * then Nothing. Built only from checks that need attention, are partial or
+ * are not tracked (too few counts as not tracked). Duplicates collapse.
+ * `data`: { rows, stale, builtAgo, end, since, prevStarts, host }.
+ * Returns [{ text, who, doneWhen, check, how? }] (at most 5), or [] when all pass.
+ */
+export function actionsFor(checks, data = {}) {
+  const out = []
+  const add = (check, state, text, who, doneWhen, how = null) => out.push({ check, state, text, who, doneWhen, ...(how ? { how } : {}) })
+  const starts = data.prevStarts ? whenPlain(data.prevStarts, data.end) : 'soon'
+  if (data.stale) add('page', 'stale', `Ask Claude to refresh this page — it is ${data.builtAgo ?? 'more than a day'} old.`, 'You', 'the page no longer says it is out of date.')
+  const by = Object.fromEntries(checks.map((c) => [c.id, c]))
+  const where = (h) => (String(h).startsWith('local') ? 'on your PC' : 'in your cloud setup')
+  const jevAction = (c) => {
+    const chats = c.facts?.chats ?? []
+    const acts = []
+    if (chats.some((x) => x.stoppedMidChat)) acts.push(['Start a new chat — this one started before today\'s Jev update.', 'You', 'new requests show Jev\'s pick.'])
+    for (const h of [...new Set(chats.filter((x) => x.neverLogged).map((x) => x.h))]) {
+      acts.push([`Turn on the latest Jev ${where(h)}.`, 'You', 'a new chat shows Jev\'s picks.', String(h).startsWith('local') ? HOW_TO.jevPc : HOW_TO.jevCloud])
+    }
+    if (!acts.length) acts.push(['Start a new chat so Jev can pick skills again.', 'You', 'new requests show Jev\'s pick.'])
+    return acts
+  }
+  for (const c of checks) {
+    const st = c.state
+    if (st === 'pass' || st === 'neutral') continue
+    if (c.account && data.host && data.host !== 'all') continue
+    if (c.id === 'jev-deciding') {
+      if (st === 'attention') for (const a of jevAction(c)) add(c.id, st, ...a)
+      else add(c.id, st, 'Nothing to do — this fills in as you make more requests.', 'Nothing', 'you have made 10 requests.')
+    } else if (c.id === 'jev-picking') {
+      if (st === 'partial') for (const a of jevAction(by['jev-deciding'])) add(c.id, st, ...a)
+      else if (st === 'attention') add(c.id, st, 'Ask Claude to run the daily routing check now.', 'Claude', 'no more than 1 in 10 of Jev\'s picks is wrong.')
+      else add(c.id, st, 'Nothing to do — this fills in as Jev picks more skills.', 'Nothing', 'Jev has picked for 10 requests.')
+    } else if (c.id === 'skills') {
+      if (st === 'attention') {
+        const refused = c.facts?.refused ?? []
+        const old = refused.every((r) => r.t < FIXES.skills || (r.chatStart !== null && r.chatStart < FIXES.skills))
+        if (old) add(c.id, st, 'Nothing to do — this is fixed in new chats. Tell Claude if a new chat is blocked too.', 'Nothing', 'a new chat uses skills without being blocked.')
+        else add(c.id, st, `Tell Claude "skills are being blocked" and name them: ${[...new Set(refused.map((r) => r.skill))].slice(0, 4).join(', ')}.`, 'You', 'Claude can use every skill it asks for.')
+      } else add(c.id, st, 'Nothing to do — this fills in when Claude next uses a skill.', 'Nothing', 'Claude has used a skill.')
+    } else if (c.id === 'landing') {
+      if (st === 'attention') add(c.id, st, 'Look at the kinds of requests that didn\'t land (under Details) and tell Claude which to fix.', 'You', '8 in 10 of your requests land.')
+      else add(c.id, st, 'Nothing to do — this fills in as you make more requests.', 'Nothing', '10 of your requests have finished.')
+    } else if (c.id === 'router') {
+      if (st === 'attention') add(c.id, st, 'Ask Claude to check the model router\'s backup models.', 'Claude', 'fewer than 1 in 10 of its answers fail.')
+      else add(c.id, st, 'Nothing to do — the model router is judged after 10 uses.', 'Nothing', 'it has been used 10 times.')
+    } else if (c.id === 'openrouter') {
+      if (st === 'attention') add(c.id, st, 'Add credit at openrouter.ai → Settings → Credits.', 'You', 'more than 10% of your credit is left.')
+      else if (c.facts === null || c.facts === undefined) add(c.id, st, 'Connect your OpenRouter key so this page can read your balance.', 'You', 'this page shows your OpenRouter credit.', HOW_TO.openrouterKey)
+    } else if (c.id === 'reporting') {
+      const f = c.facts ?? {}
+      for (const q of f.quiet ?? []) add(c.id, 'attention', `Open a chat on ${String(q.h).startsWith('local') ? 'your PC' : 'Claude in the cloud'} so it reports again.`, 'You', 'it shows up here again.')
+      if (st === 'untracked') add(c.id, st, `Nothing to do — comparisons start ${starts}.`, 'Nothing', `it's ${starts}.`)
+    }
+  }
+  // A PC that has never reported is a gap whatever the state (only when the filter includes your PC).
+  const rep = by.reporting?.facts
+  if (rep && !rep.everLocal && rep.host !== 'cloud') add('reporting', 'untracked', 'Run one chat on your PC in these projects, so it reports too.', 'You', 'your PC shows up here.')
+  const seen = new Set()
+  return out
+    .filter((a) => (seen.has(a.text) ? false : seen.add(a.text)))
+    .map((a, i) => ({ ...a, i }))
+    .sort((x, y) => WHO_ORDER[x.who] - WHO_ORDER[y.who] || (SEVERITY[x.state] ?? 3) - (SEVERITY[y.state] ?? 3) || x.i - y.i)
+    .slice(0, data.limit ?? 5)
+    .map(({ i, state, ...a }) => a)
+}
+
+/** "today", "tomorrow" or "Oct 10": when a future time falls, in plain words (UTC days). */
+export function whenPlain(t, end) {
+  const day = (x) => Math.floor(x / DAY)
+  if (t <= end || day(t) === day(end)) return 'today'
+  if (day(t) === day(end) + 1) return 'tomorrow'
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
 // ---------- the sections under the checks ----------

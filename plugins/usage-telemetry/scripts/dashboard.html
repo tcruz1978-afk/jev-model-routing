@@ -6,90 +6,123 @@
 <title>Claude Usage Monitor</title>
 <style>
 :root {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #16181d; --muted: #5d6573; --line: #e3e6eb;
-  --accent: #3b5bdb; --good: #2b8a3e; --bad: #c92a2a; --na: #868e96;
-  --good-bg: #ebf7ee; --bad-bg: #fdecec; --na-bg: #f1f3f5; --stale-bg: #fff4e0; --stale: #8a5300;
-  --s1: #3b5bdb; --s2: #0c8599;
+  --bg: #f7f7f7; --panel: #ffffff; --ink: #1d1d1f; --muted: #626268; --faint: #8e8e93; --line: #e2e2e5; --soft: #f1f1f3;
+  --good: #2f7d3b; --bad: #c0362c; --warn: #a86400; --na: #8e8e93;
+  --bad-bg: #fbeeec; --good-bg: #eef6ef; --warn-bg: #fdf3e3;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa3b2; --line: #2a2f38;
-    --accent: #748ffc; --good: #69db7c; --bad: #ff8787; --na: #8b94a3;
-    --good-bg: #16261b; --bad-bg: #2e1616; --na-bg: #1d2128; --stale-bg: #2b2112; --stale: #ffc078;
-    --s1: #748ffc; --s2: #3bc9db;
+    --bg: #141416; --panel: #1c1c1f; --ink: #ececef; --muted: #a3a3aa; --faint: #7c7c84; --line: #2e2e33; --soft: #242428;
+    --good: #6cc47a; --bad: #ff7b6e; --warn: #f0b252; --na: #8a8a92;
+    --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0f1115; --panel: #171a20; --ink: #e8eaee; --muted: #9aa3b2; --line: #2a2f38;
-  --accent: #748ffc; --good: #69db7c; --bad: #ff8787; --na: #8b94a3;
-  --good-bg: #16261b; --bad-bg: #2e1616; --na-bg: #1d2128; --stale-bg: #2b2112; --stale: #ffc078;
-  --s1: #748ffc; --s2: #3bc9db;
+  --bg: #141416; --panel: #1c1c1f; --ink: #ececef; --muted: #a3a3aa; --faint: #7c7c84; --line: #2e2e33; --soft: #242428;
+  --good: #6cc47a; --bad: #ff7b6e; --warn: #f0b252; --na: #8a8a92;
+  --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 48px; }
-header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; margin-bottom: 14px; }
-h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
-.sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
-.controls { display: flex; flex-wrap: wrap; gap: 8px; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
-.seg button { border: 0; background: none; color: var(--muted); padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 24px 16px 56px; }
+header { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+h1 { font-size: 20px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+details > summary { cursor: pointer; }
+details > summary::-webkit-details-marker { display: none; }
+summary { list-style: none; }
+summary:focus-visible, button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 6px; }
+.options { position: relative; }
+.options > summary { font-size: 13px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; background: var(--panel); }
+.options[open] > summary { color: var(--ink); }
+.opt-body { position: absolute; right: 0; top: 36px; z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.12); width: max-content; max-width: calc(100vw - 32px); }
+.opt-body p { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+.opt-body .seg + p { margin-top: 10px; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: none; color: var(--muted); padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
-.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-.banner { display: none; background: var(--stale-bg); color: var(--stale); border: 1px solid currentColor; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-weight: 600; }
-.is-stale .banner { display: block; }
-.is-stale section { filter: grayscale(1); opacity: 0.72; }
-section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 14px; }
-h2 { font-size: 16px; margin: 0 0 4px; }
-.note { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
-.note.end { margin: 12px 0 0; }
-.verdict { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); margin: 8px 0 6px; }
-.verdict b { font-size: 22px; letter-spacing: -0.01em; }
-.verdict span { color: var(--muted); font-size: 13px; }
-.verdict.pass { background: var(--good-bg); } .verdict.attention { background: var(--bad-bg); } .verdict.untracked, .verdict.stale { background: var(--na-bg); }
-.dot { width: 12px; height: 12px; border-radius: 50%; flex: none; background: var(--na); }
-.pass .dot { background: var(--good); } .attention .dot { background: var(--bad); }
-.checks { list-style: none; margin: 10px 0 0; padding: 0; }
-.check { display: grid; grid-template-columns: 210px 190px minmax(0, 1fr); gap: 4px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
-.check h3 { font-size: 14px; margin: 4px 0 0; }
-.badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; color: var(--na); }
-.check.pass .badge { color: var(--good); } .check.attention .badge { color: var(--bad); }
-.fig { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-.check.attention .fig { color: var(--bad); }
-.check.untracked .fig, .check.thin .fig, .check.partial .fig, .check.stale .fig { color: var(--na); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
 .seg button.short { text-decoration: underline dotted; text-underline-offset: 3px; }
-.check p { margin: 0 0 3px; font-size: 13px; }
-.check .muted, .muted { color: var(--muted); }
-.check ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
-.check li + li { margin-top: 2px; }
+.banner { display: none; background: var(--warn-bg); color: var(--warn); border: 1px solid currentColor; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-weight: 600; font-size: 14px; }
+.is-stale .banner { display: block; }
+.is-stale .checks, .is-stale .spend, .is-stale .more { filter: grayscale(1); opacity: 0.7; }
+.top { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 14px; }
+.headline { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.headline h2 { font-size: 18px; margin: 0; font-weight: 650; }
+.verdict { font-size: 18px; font-weight: 650; }
+.verdict.attention { color: var(--bad); } .verdict.pass { color: var(--good); } .verdict.stale, .verdict.untracked { color: var(--muted); }
+.verdict small { display: block; text-align: right; font-size: 13px; font-weight: 400; color: var(--muted); }
+.todo-block { padding: 12px 0 4px; }
+.todo-block h3 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+ol.todo { margin: 0; padding-left: 22px; }
+ol.todo > li { margin: 0 0 8px; }
+.act { font-weight: 550; }
+.who { display: inline-block; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 4px; white-space: nowrap; }
+.done { display: block; font-size: 13px; color: var(--muted); }
+.none { margin: 0; color: var(--muted); }
+details.how { margin-top: 2px; font-size: 13px; }
+details.how > summary { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; display: inline-block; }
+details.how ol { margin: 6px 0 0; padding-left: 20px; color: var(--ink); overflow-wrap: anywhere; }
+.hint { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+ul.checks { list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid var(--line); }
+ul.checks > li { border-bottom: 1px solid var(--line); }
+.check > summary { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 14px; gap: 10px; align-items: baseline; padding: 11px 2px; }
+.check > summary:hover { background: var(--soft); }
+.ico { font: 700 16px/1 "Segoe UI Symbol", "Apple Symbols", "DejaVu Sans", -apple-system, sans-serif; text-align: center; color: var(--na); }
+.st-attention .ico { color: var(--bad); } .st-pass .ico { color: var(--good); } .st-partial .ico { color: var(--warn); }
+.name { font-weight: 550; }
+.st-untracked .name, .st-thin .name, .st-stale .name { color: var(--muted); font-weight: 500; }
+.figure { color: var(--muted); font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+.st-attention .figure { color: var(--bad); }
+.chev { color: var(--faint); transition: transform .15s; }
+.check[open] .chev { transform: rotate(90deg); }
+.panel { padding: 0 2px 12px 34px; font-size: 14px; }
+.panel p { margin: 0 0 6px; }
+.panel ul { margin: 0 0 6px; padding-left: 18px; }
+.muted { color: var(--muted); }
+.todo-line b { font-weight: 600; }
+.spend { margin: 12px 0 0; font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.spend b { font-weight: 600; }
+.spend span { color: var(--muted); }
+.more { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+.more > summary { padding: 14px 18px; font-weight: 600; }
+.more > summary::after { content: " ›"; color: var(--faint); }
+.more[open] > summary::after { content: " ⌄"; }
+.more section { padding: 4px 18px 16px; border-top: 1px solid var(--line); }
+.more h3 { font-size: 15px; margin: 14px 0 4px; }
+.note { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .pair > div { min-width: 0; }
-.h3 { font-size: 14px; margin: 0 0 4px; }
-.chart { min-height: 20px; }
+.h4 { font-size: 13px; margin: 0 0 4px; font-weight: 600; }
 svg text { fill: var(--muted); font-size: 12px; }
-.empty { color: var(--muted); font-size: 13px; margin: 6px 0; }
+.empty { color: var(--muted); font-size: 14px; margin: 6px 0; }
 .rows { display: grid; font-size: 13px; font-variant-numeric: tabular-nums; }
 .row { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 4px 12px; padding: 7px 0; border-top: 1px solid var(--line); align-items: baseline; }
-.row.head { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; border-top: 0; }
+.row.head { color: var(--muted); font-size: 12px; font-weight: 600; border-top: 0; }
 .row > span:not(:first-child) { text-align: right; }
 .row.thin { color: var(--na); }
 .row.bad span.rate { color: var(--bad); font-weight: 600; }
 .row .lab { display: none; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
-.legend i { display: inline-block; width: 12px; height: 3px; margin-right: 5px; vertical-align: 3px; }
-footer { color: var(--muted); font-size: 12px; margin-top: 18px; }
-footer p { margin: 4px 0; }
+ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-@media (max-width: 760px) {
-  .check { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 600px) {
+  .options { width: 100%; }
+  .opt-body { position: static; margin-top: 8px; box-shadow: none; width: auto; }
+  .check > summary { grid-template-columns: 22px minmax(0, 1fr) 14px; row-gap: 2px; }
+  .spend .sep { display: none; }
+  .spend { flex-direction: column; }
+  .check .figure { grid-column: 2; grid-row: 2; text-align: left; font-size: 13px; }
+  .check .chev { grid-column: 3; grid-row: 1; }
+  .panel { padding-left: 32px; }
   .pair { grid-template-columns: minmax(0, 1fr); }
   .row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .row > span:first-child { grid-column: 1 / -1; font-weight: 600; }
   .row > span:not(:first-child) { text-align: left; }
   .row.head { display: none; }
   .row .lab { display: block; color: var(--muted); font-size: 12px; }
-  .verdict b { font-size: 19px; }
+  .verdict small { text-align: left; }
+  .top { padding: 14px 14px 10px; }
 }
 </style>
 </head>
@@ -98,53 +131,64 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
   <header>
     <div>
       <h1>Claude Usage Monitor</h1>
-      <div class="sub" id="sub"></div>
+      <p class="sub" id="sub"></p>
     </div>
-    <div class="controls">
-      <div class="seg" id="host" role="group" aria-label="Where">
-        <button data-v="all" aria-pressed="true">All hosts</button><button data-v="cloud" aria-pressed="false">Cloud</button><button data-v="local" aria-pressed="false">Local</button>
+    <details class="options" id="options">
+      <summary>Options</summary>
+      <div class="opt-body">
+        <p>Period</p>
+        <div class="seg" id="range" role="group" aria-label="Period">
+          <button data-v="1" aria-pressed="false">24 hours</button><button data-v="7" aria-pressed="true">7 days</button><button data-v="30" aria-pressed="false">30 days</button><button data-v="90" aria-pressed="false">90 days</button>
+        </div>
+        <p>Machines</p>
+        <div class="seg" id="host" role="group" aria-label="Machines">
+          <button data-v="all" aria-pressed="true">All</button><button data-v="cloud" aria-pressed="false">Cloud</button><button data-v="local" aria-pressed="false">Your PC</button>
+        </div>
       </div>
-      <div class="seg" id="range" role="group" aria-label="Time range">
-        <button data-v="1" aria-pressed="false">24h</button><button data-v="7" aria-pressed="true">7 days</button><button data-v="30" aria-pressed="false">30 days</button><button data-v="90" aria-pressed="false">90 days</button>
-      </div>
-    </div>
+    </details>
   </header>
 
   <div class="banner" id="banner" role="alert"></div>
 
-  <section>
-    <h2>Is everything working?</h2>
-    <div class="verdict" id="verdict"></div>
-    <p class="note" id="window"></p>
-    <ul class="checks" id="checks"></ul>
-    <p class="note end" id="targets"></p>
+  <section class="top" id="top" aria-labelledby="q">
+    <div class="headline"><h2 id="q">Is everything working?</h2><div class="verdict" id="verdict"></div></div>
+    <div class="todo-block"><h3>What to do</h3><div id="actions"></div></div>
+    <p class="hint" id="jevhint"></p>
+    <div id="checks"></div>
+    <p class="spend" id="spend"></p>
   </section>
 
-  <section>
-    <h2>Answers and cost per turn</h2>
-    <p class="note">A turn is one message you sent plus all the work until your next one. Points are per <span id="bucketword">day</span>, ending at the build time.</p>
-    <div id="trend"></div>
-  </section>
-
-  <section>
-    <h2>Where the work went</h2>
-    <p class="note">Claude cost at API list prices (API-equivalent, not a bill), by main conversation and subagent type. No target, so nothing here is coloured; rows under 10 model calls are grey.</p>
-    <div class="rows" id="work"></div>
-  </section>
-
-  <section>
-    <h2>Skills refused</h2>
-    <p class="note">Skills Claude tried to load and was blocked from. "Jev picked" counts Jev's logged decisions plus transcript suggestions with no logged decision.</p>
-    <div class="rows" id="refused"></div>
-  </section>
-
-  <section>
-    <h2>Tools failing above target</h2>
-    <p class="note" id="toolsnote"></p>
-    <div class="rows" id="tools"></div>
-  </section>
-
-  <footer id="foot"></footer>
+  <details class="more" id="more">
+    <summary>Details</summary>
+    <section>
+      <h3>Requests over time</h3>
+      <p class="note">Each point is one <span id="bucketword">day</span>, ending when this page was built.</p>
+      <div id="trend"></div>
+    </section>
+    <section>
+      <h3>Where Claude's work went</h3>
+      <p class="note">What the work would have cost at Claude's pay-as-you-go prices — a measure of work, not a bill. Rows with fewer than 10 model calls are grey.</p>
+      <div class="rows" id="work"></div>
+    </section>
+    <section>
+      <h3>Skills Claude was blocked from</h3>
+      <div class="rows" id="refused"></div>
+    </section>
+    <section>
+      <h3>Tools that failed more than 1 in 10 times</h3>
+      <p class="note">Red from 10 uses; grey means too few uses to judge.</p>
+      <div class="rows" id="tools"></div>
+    </section>
+    <section>
+      <h3>The targets</h3>
+      <p class="note">Set by you on Sep 26, 2026. They are the only reason anything turns red or green.</p>
+      <ul class="plain" id="targets"></ul>
+    </section>
+    <section>
+      <h3>About these numbers</h3>
+      <ul class="plain" id="notes"></ul>
+    </section>
+  </details>
 </main>
 <script>
 /*__CHECKS__*/
@@ -152,70 +196,79 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 <script>
 const DATA = /*__DATA__*/null;
 const END = Date.parse(DATA.generatedAt);
+const SINCE = DATA.firstEventAt ? Date.parse(DATA.firstEventAt) : null;
 let host = 'all', days = 7;
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const STATE_LABEL = { pass: 'Pass', attention: 'Needs attention', untracked: 'Not tracked', thin: 'Too few to judge', partial: 'Partial', neutral: 'No target set', stale: 'As of build' };
-const SINCE = DATA.firstEventAt ? Date.parse(DATA.firstEventAt) : null;
-const HOST_NAME = { all: 'all hosts', cloud: 'cloud only', local: 'local machines only' };
+const esc = escHtml;
 const hostsEver = [...new Set(DATA.rows.map((r) => r.h))];
 const hasHost = (h) => hostsEver.some((x) => hostMatch(x, h));
 const change = (a, b) => (b > 0 && Number.isFinite(a) ? (a >= b ? '+' : '−') + Math.round((Math.abs(a - b) / b) * 100) + '%' : '—');
+const priced = (ts) => ts.filter((t) => Number.isFinite(t.c)).length;
+let current = null;
 
 function render() {
-  const stale = isStale(END, Date.now());
+  const now = Date.now();
+  const stale = isStale(END, now);
+  const builtAgo = ago(now - END);
   document.body.classList.toggle('is-stale', stale);
   document.getElementById('banner').textContent = stale
-    ? `Out of date: this page was built ${ago(Date.now() - END)} ago (${fmtTime(END)}). Every figure below is as of then, not now. Refresh it before acting on anything here.`
+    ? `This page is out of date: it was built ${builtAgo} ago, on ${fmtTime(END)}. Everything below is from then. Ask Claude to refresh it before you act on it.`
     : '';
-  const src = DATA.source === 'supabase' ? 'Supabase export (every host that shipped events)' : 'local file (this machine only)';
-  document.getElementById('sub').textContent = `Source: ${src} · newest event ${DATA.lastEventAt ? fmtTime(DATA.lastEventAt) : 'none'} · built ${fmtTime(END)}`;
-  for (const b of document.querySelectorAll('#host button')) {
-    const v = b.dataset.v, base = { all: 'All hosts', cloud: 'Cloud', local: 'Local' }[v];
-    b.textContent = v !== 'all' && !hasHost(v) ? base + ' · none' : base;
-  }
-
+  const where = DATA.source === 'supabase' ? 'all machines' : 'this machine';
+  document.getElementById('sub').textContent = `as of ${fmtTime(END)} · data since ${SINCE === null ? 'no data yet' : fmtTime(SINCE)} · ${where}`;
   for (const b of document.querySelectorAll('#range button')) {
     const d = Number(b.dataset.v), short = SINCE === null || SINCE > END - d * DAY;
     b.classList.toggle('short', short);
-    b.title = short ? (SINCE === null ? 'No data' : `Only ${ago(END - SINCE)} of data: collection began ${fmtTime(SINCE)}`) : '';
+    b.title = short ? (SINCE === null ? 'No data yet' : `Only ${ago(END - SINCE)} of data so far`) : '';
   }
-  const R = runChecks({ rows: DATA.rows, turns: DATA.turns, generatedAt: END, days, host, since: SINCE });
-  const v = R.verdict;
-  const vEl = document.getElementById('verdict');
-  vEl.className = 'verdict ' + (stale ? 'stale' : v.state);
-  vEl.innerHTML = stale
-    ? `<span class="dot"></span><div><b>Out of date</b><br><span>As of the build (${esc(fmtTime(END))}): ${esc(v.text)}${v.tail ? ' · ' + esc(v.tail) : ''}</span></div>`
-    : `<span class="dot"></span><div><b>${esc(v.text)}</b>${v.tail ? `<br><span>${esc(v.tail)}</span>` : ''}</div>`;
-  const noHost = host !== 'all' && !hasHost(host) ? ` ${host === 'local' ? 'Local: not tracked. No local machine has reported.' : 'Cloud: not tracked. No cloud session has reported.'}` : '';
-  const cov = R.coverage;
-  const covText = SINCE === null ? ' No data yet.' : ` Data since ${fmtTime(SINCE)}${cov.partial ? `: only ${ago(cov.covered)} of data in this ${span(days)} range` : ''}.`;
-  const acct = host !== 'all' ? ' The verdict leaves out the account-wide OpenRouter check, which a host filter cannot apply to.' : '';
-  document.getElementById('window').textContent = `Window: the ${span(days)} to ${fmtTime(END)} (the build time), ${HOST_NAME[host]}, each compared with the ${span(days)} before.${covText}${noHost}${acct}`;
-  document.getElementById('checks').innerHTML = R.checks.map((c) => {
-    const st = stale ? 'stale' : c.state;
-    return `<li class="check ${st}">
-      <div><span class="badge">${esc(STATE_LABEL[st])}</span><h3>${esc(c.title)}</h3></div>
-      <div><div class="fig">${esc(c.figure)}</div>${c.n !== undefined && c.state !== 'untracked' ? `<p class="muted">n = ${esc(n0(c.n))}</p>` : ''}</div>
-      <div><p>${esc(c.population)}</p>${c.compare ? `<p class="muted">${esc(c.compare)}</p>` : ''}${c.lines.length ? '<ul>' + c.lines.map((l) => `<li>${esc(l)}</li>`).join('') + '</ul>' : ''}<p class="muted">${esc(c.target)}</p></div>
-    </li>`;
-  }).join('');
-  document.getElementById('targets').innerHTML =
-    `The owner's targets (approved ${esc(TARGETS_APPROVED)}), the only source of colour: green meets one, red misses it, grey is not tracked (no data), too few to judge (a rate over fewer than ${TARGETS.minN}) or partial. A check with no data is never green.<br>` +
-    TARGET_NOTES.map((t) => esc(t)).join(' · ');
+  for (const b of document.querySelectorAll('#host button')) {
+    const v = b.dataset.v;
+    b.title = v !== 'all' && !hasHost(v) ? (v === 'local' ? "Your PC hasn't reported yet" : "Cloud chats haven't reported yet") : '';
+  }
 
+  const R = runChecks({ rows: DATA.rows, turns: DATA.turns, generatedAt: END, days, host, since: SINCE });
+  current = R;
+  const v = verdictPlain(R, { stale, builtAgo, host });
+  const vEl = document.getElementById('verdict');
+  vEl.className = 'verdict ' + v.state;
+  vEl.innerHTML = esc(v.text) + (v.sub ? `<small>${esc(v.sub)}</small>` : '');
+
+  const actions = actionsFor(R.checks, { stale, builtAgo, end: END, prevStarts: R.coverage.prevStarts, host });
+  document.getElementById('actions').innerHTML = actionsHtml(actions);
+  const jevFirst = actions.some((a) => /\bJev\b/.test(a.text));
+  const hint = document.getElementById('jevhint');
+  hint.textContent = 'Jev picks the right skill for each of your requests.';
+  hint.style.display = '';
+  const rows = plainChecks(R, { days, end: END, host, stale, builtAgo });
+  document.getElementById('checks').innerHTML = checksHtml(rows);
+  // Jev is explained once, in its own line above the checks (#jevhint).
+  void jevFirst;
+
+  const sp = spendPlain(R, DATA.rows, { days, end: END, host });
+  const spEl = document.getElementById('spend');
+  spEl.title = sp.tooltip;
+  spEl.innerHTML = `<b>${esc(sp.label)}</b> <span>Claude ${esc(sp.claude)} (at pay-as-you-go prices)</span> <span class="sep">·</span> <span>OpenRouter ${esc(sp.openrouter ?? 'not checked yet')}</span>`;
+
+  if (document.getElementById('more').open) details(R);
+  else document.getElementById('trend').innerHTML = '';
+}
+
+function details(R) {
   trend(R);
   work(R);
   refused(R);
   tools(R);
-
+  document.getElementById('targets').innerHTML = TARGET_NOTES.map((t) => `<li>${esc(t)}</li>`).join('');
   const p = DATA.prices || {};
-  document.getElementById('foot').innerHTML =
-    `<p>Claude cost is API-equivalent: what the tokens would cost at API list prices, not a bill on a subscription. Price table <code>scripts/prices.json</code>${p.date ? `, read ${esc(p.date)}` : ''}${p.url ? ` from ${esc(p.url)}` : ''}. OpenRouter spend is billed, comes from the key, and appears only in the OpenRouter check; the two are never added or shown on one scale.</p>` +
-    `<p>Built ${esc(fmtTime(END))} by the usage-telemetry plugin (<code>tcruz1978-afk/jev-model-routing</code>). Prompt text and tool inputs are never recorded.</p>`;
+  const pw = periodWords(days);
+  document.getElementById('notes').innerHTML = [
+    `Claude's cost is what the same work would cost at Claude's pay-as-you-go prices${p.date ? ` (price list read ${p.date})` : ''}. On a subscription it measures work, not what you pay.`,
+    "OpenRouter's figure is what OpenRouter itself reports for your key. The two are never added together.",
+    `Every figure covers ${pw.cur} up to ${fmtTime(END)}, and is compared with ${pw.prev}.`,
+    DATA.source === 'supabase' ? 'Built from every machine that sent its usage.' : 'Built from this machine only.',
+    'Your prompts and what tools were asked to do are never recorded — only counts, times and costs.',
+  ].map((t) => `<li>${esc(t)}</li>`).join('');
 }
-
-const priced = (ts) => ts.filter((t) => Number.isFinite(t.c)).length;
 
 function trend(R) {
   const el = document.getElementById('trend');
@@ -224,22 +277,23 @@ function trend(R) {
   document.getElementById('bucketword').textContent = word;
   const now = median(R.tcur.map((t) => t.c)), before = median(R.tprev.map((t) => t.c));
   const land = landStats(R.tcur);
+  const pw = periodWords(days);
   const costLine = R.tcur.length
-    ? `Median Claude cost per turn: ${usd(now)} (n = ${n0(priced(R.tcur))} priced turns) · ${R.prevNote ?? (before === null ? `previous ${span(days)}: not tracked` : `previous ${span(days)} ${usd(before)} (n = ${n0(priced(R.tprev))}) · ${change(now, before)}`)}. API-equivalent; no target set.`
+    ? `Typical Claude cost per request: ${usd(now)} across ${plural(priced(R.tcur), 'request')}. ${R.coverage.prevTracked ? (before === null ? `Nothing to compare with in ${pw.prev}.` : `${pw.prev.charAt(0).toUpperCase() + pw.prev.slice(1)}: ${usd(before)} (${change(now, before)}).`) : 'A comparison appears once there is a full earlier period.'} No target is set for cost.`
     : '';
   if (B.withData < 2) {
     el.innerHTML = `<p class="empty">${esc(R.tcur.length
-      ? `All ${plural(R.tcur.length, 'turn')} in this window fall in one ${word}, so there is no trend yet: ${land.rate === null ? 'no turn has an outcome' : `landed ${pct(land.rate)} of ${n0(land.known)}`}, median cost ${usd(now)} per turn. Lines appear from the second ${word} with turns.`
-      : 'No turns in this window, so no trend: not tracked.')}</p>`;
+      ? `All ${plural(R.tcur.length, 'request')} in this period fall in one ${word}, so there's no trend yet: ${land.rate === null ? 'none has finished' : `${pct(land.rate)} of ${n0(land.known)} landed`}, typical cost ${usd(now)}. Lines appear from the second ${word}.`
+      : 'No requests in this period yet.')}</p>`;
     return;
   }
-  el.innerHTML = `<div class="pair"><div><h3 class="h3">Landed % per ${esc(word)} (target ≥ ${pct(TARGETS.landRate)})</h3><div class="chart" id="c-land"></div></div>` +
-    `<div><h3 class="h3">Median cost per turn per ${esc(word)}</h3><div class="chart" id="c-cost"></div></div></div>` +
-    `<div class="legend"><span><i style="background:var(--s1)"></i>value</span><span><i style="background:var(--bad)"></i>target</span><span>hollow grey point: fewer than ${TARGETS.minN} turns, too few to judge</span></div>` +
-    `<p class="note end">${esc(costLine)}</p>`;
+  el.innerHTML = `<div class="pair"><div><p class="h4">Requests that landed, per ${esc(word)} (target ${pct(TARGETS.landRate)})</p><div class="chart" id="c-land"></div></div>` +
+    `<div><p class="h4">Typical Claude cost per request, per ${esc(word)}</p><div class="chart" id="c-cost"></div></div></div>` +
+    `<p class="note">Dashed line: the target. A hollow grey point has fewer than ${TARGETS.minN} requests, too few to judge.</p>` +
+    `<p class="note">${esc(costLine)}</p>`;
   const label = (b) => (B.size < DAY ? new Date(b.to).toLocaleTimeString('en-US', { hour: 'numeric' }) : fmtDate(b.to - 1));
-  chart('c-land', B.buckets, (b) => b.rate, (b) => b.known, (x) => pct(x), 1, TARGETS.landRate, label, 'Landed percent per bucket');
-  chart('c-cost', B.buckets, (b) => b.cost, (b) => b.priced, usd, null, null, label, 'Median cost per turn per bucket');
+  chart('c-land', B.buckets, (b) => b.rate, (b) => b.known, (x) => pct(x), 1, TARGETS.landRate, label, 'Requests that landed over time');
+  chart('c-cost', B.buckets, (b) => b.cost, (b) => b.priced, usd, null, null, label, 'Typical cost per request over time');
 }
 
 /** A line over buckets sized to its container, so its 12px text stays 12px on a phone. */
@@ -251,17 +305,16 @@ function chart(id, buckets, val, nOf, fmt, fixedMax, target, label, aria) {
   const k = buckets.length;
   const x = (i) => padL + (k === 1 ? (W - padL - padR) / 2 : (i * (W - padL - padR)) / (k - 1));
   const y = (v) => top + (H - top) * (1 - v / max);
-  const showN = k <= 8;
-  let s = `<svg viewBox="0 0 ${W} ${H + (showN ? 38 : 22)}" width="${W}" height="${H + (showN ? 38 : 22)}" role="img" aria-label="${esc(aria)}">`;
+  let s = `<svg viewBox="0 0 ${W} ${H + 22}" width="${W}" height="${H + 22}" role="img" aria-label="${esc(aria)}">`;
   for (const f of [0, 0.5, 1]) s += `<line x1="${padL}" x2="${W - padR}" y1="${y(max * f)}" y2="${y(max * f)}" stroke="var(--line)"/><text x="0" y="${y(max * f) + 4}">${esc(fmt(max * f))}</text>`;
-  if (target !== null) s += `<line x1="${padL}" x2="${W - padR}" y1="${y(target)}" y2="${y(target)}" stroke="var(--bad)" stroke-dasharray="4 3"/>`;
+  if (target !== null) s += `<line x1="${padL}" x2="${W - padR}" y1="${y(target)}" y2="${y(target)}" stroke="var(--muted)" stroke-dasharray="4 3"/>`;
   let d = '';
   buckets.forEach((b, i) => { const v = val(b); if (v === null || v === undefined) return; d += (i > 0 && val(buckets[i - 1]) !== null && val(buckets[i - 1]) !== undefined ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1); });
-  s += `<path d="${d}" fill="none" stroke="var(--s1)" stroke-width="2"/>`;
+  s += `<path d="${d}" fill="none" stroke="var(--ink)" stroke-width="1.8"/>`;
   buckets.forEach((b, i) => {
     const v = val(b); if (v === null || v === undefined) return;
     const thin = nOf(b) < TARGETS.minN;
-    s += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${thin ? 'var(--panel)' : 'var(--s1)'}" stroke="${thin ? 'var(--na)' : 'var(--s1)'}" stroke-width="1.5"><title>${esc(label(b))}: ${esc(fmt(v))} (n = ${esc(n0(nOf(b)))})</title></circle>`;
+    s += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${thin ? 'var(--panel)' : 'var(--ink)'}" stroke="${thin ? 'var(--na)' : 'var(--ink)'}" stroke-width="1.5"><title>${esc(label(b))}: ${esc(fmt(v))} (${esc(plural(nOf(b), 'request'))})</title></circle>`;
   });
   const every = Math.max(1, Math.ceil(k / Math.max(2, Math.floor((W - padL) / 60))));
   buckets.forEach((b, i) => {
@@ -269,7 +322,6 @@ function chart(id, buckets, val, nOf, fmt, fixedMax, target, label, aria) {
     if (i !== k - 1 && k - 1 - i < every) return; // leave room for the last label
     const anchor = k > 1 && i === k - 1 ? 'end' : k > 1 && i === 0 ? 'start' : 'middle';
     s += `<text x="${x(i)}" y="${H + 16}" text-anchor="${anchor}">${esc(label(b))}</text>`;
-    if (showN) s += `<text x="${x(i)}" y="${H + 32}" text-anchor="${anchor}">n=${esc(n0(nOf(b)))}</text>`;
   });
   el.innerHTML = s + '</svg>';
 }
@@ -279,37 +331,39 @@ function rowsHtml(head, rows) {
     rows.map((r) => `<div class="row ${r.cls || ''}">${r.cells.map((c, i) => `<span${i === r.rateCol ? ' class="rate"' : ''}>${i ? `<span class="lab">${esc(head[i])}</span>` : ''}${esc(c)}</span>`).join('')}</div>`).join('');
 }
 
+const helper = (who) => who.replace(/^Main conversation$/, 'Your chats').replace(/^Subagent: /, 'Helper: ');
+
 function work(R) {
   const el = document.getElementById('work');
   const split = workSplit(R.cur, R.prev);
-  if (!split.length) { el.innerHTML = '<p class="empty">No model calls in this window: not tracked.</p>'; return; }
+  if (!split.length) { el.innerHTML = '<p class="empty">No Claude work in this period yet.</p>'; return; }
   const total = split.reduce((a, e) => ({ n: a.n + e.n, c: a.c + e.c, pn: a.pn + e.pn, pc: a.pc + e.pc, unpriced: a.unpriced + e.unpriced }), { n: 0, c: 0, pn: 0, pc: 0, unpriced: 0 });
+  const pw = periodWords(days);
   const line = (e, label) => ({
     cls: e.n < TARGETS.minN ? 'thin' : '',
-    cells: [label ?? e.who, e.n ? `${usd(e.c)} · ${plural(e.n, 'call')}` : 'no calls', !R.coverage.prevTracked ? 'not tracked' : e.pn ? `${usd(e.pc)} · ${plural(e.pn, 'call')}` : 'no calls', R.coverage.prevTracked && e.n && e.pn ? change(e.c, e.pc) : '—'],
+    cells: [label ?? helper(e.who), e.n ? `${usd(e.c)} · ${plural(e.n, 'call')}` : 'none', !R.coverage.prevTracked ? 'not collected yet' : e.pn ? `${usd(e.pc)} · ${plural(e.pn, 'call')}` : 'none', R.coverage.prevTracked && e.n && e.pn ? change(e.c, e.pc) : '—'],
   });
-  el.innerHTML = rowsHtml(['Who', 'This window', `Previous ${span(days)}`, 'Change'], [...split.map((e) => line(e)), line(total, 'All Claude work')]) +
-    (R.prevNote ? `<p class="note end">${esc(R.prevNote)}.</p>` : '') +
-    (total.unpriced ? `<p class="note end">${esc(plural(total.unpriced, 'call'))} used a model with no price in the table and ${total.unpriced === 1 ? 'is' : 'are'} not in the cost.</p>` : '');
+  el.innerHTML = rowsHtml(['Who', 'This period', pw.prev.charAt(0).toUpperCase() + pw.prev.slice(1), 'Change'], [...split.map((e) => line(e)), line(total, 'All of Claude')]) +
+    (total.unpriced ? `<p class="note">${esc(plural(total.unpriced, 'call'))} used a model with no known price and ${total.unpriced === 1 ? "isn't" : "aren't"} counted.</p>` : '');
 }
 
 function refused(R) {
   const el = document.getElementById('refused');
   const list = refusedSkills(R.cur);
   const calls = R.cur.filter((r) => r.k === 'tool' && r.tl === 'Skill' && r.ok !== null && r.ok !== undefined).length;
-  if (!list.length) { el.innerHTML = `<p class="empty">${esc(calls ? `None of ${plural(calls, 'Skill call')} in this window was refused.` : 'No Skill calls in this window: not tracked.')}</p>`; return; }
-  el.innerHTML = rowsHtml(['Skill', 'Refused', 'Jev picked', 'Last refused'], list.map((e) => ({ cls: 'bad', rateCol: 1, cells: [e.skill, `${n0(e.refused)} of ${n0(e.calls)}`, n0(e.jevPicked), fmtTime(e.last)] })));
+  if (!list.length) { el.innerHTML = `<p class="empty">${esc(calls ? `Claude wasn't blocked from any of the ${plural(calls, 'skill')} it used.` : "Claude hasn't used a skill in this period.")}</p>`; return; }
+  el.innerHTML = rowsHtml(['Skill', 'Blocked', 'Jev picked it', 'Last blocked'], list.map((e) => ({ cls: 'bad', rateCol: 1, cells: [e.skill, `${n0(e.refused)} of ${n0(e.calls)}`, n0(e.jevPicked), fmtTime(e.last)] })));
 }
 
 function tools(R) {
-  document.getElementById('toolsnote').textContent = `Tools (other than Skill, covered above) that failed more than ${pct(TARGETS.toolFailRate)} of their calls. Lower is better. Red: over target with n ≥ ${TARGETS.minN}; grey: too few calls to judge.`;
   const el = document.getElementById('tools');
   const list = failingTools(R.cur, R.prev).slice(0, 8);
-  if (!list.length) { el.innerHTML = `<p class="empty">${esc(R.cur.some((r) => r.k === 'tool') ? `No tool failed more than ${pct(TARGETS.toolFailRate)} of its calls in this window.` : 'No tool calls in this window: not tracked.')}</p>`; return; }
-  el.innerHTML = rowsHtml(['Tool', 'Failed', `Previous ${span(days)}`, 'Change'], list.map((x) => ({
+  const pw = periodWords(days);
+  if (!list.length) { el.innerHTML = `<p class="empty">${esc(R.cur.some((r) => r.k === 'tool') ? 'No tool failed more than 1 in 10 times.' : 'No tools used in this period.')}</p>`; return; }
+  el.innerHTML = rowsHtml(['Tool', 'Failed', pw.prev.charAt(0).toUpperCase() + pw.prev.slice(1), 'Change'], list.map((x) => ({
     cls: x.thin ? 'thin' : 'bad', rateCol: 1,
-    cells: [x.label, `${pct(x.rate)} · ${n0(x.bad)} of ${n0(x.n)}${x.thin ? ' (too few)' : ''}`, !R.coverage.prevTracked ? 'not tracked' : x.prev ? `${pct(x.prev.bad / x.prev.n)} · ${n0(x.prev.bad)} of ${n0(x.prev.n)}` : 'no calls', R.coverage.prevTracked && x.prev ? pp(x.rate, x.prev.bad / x.prev.n) : '—'],
-  }))) + (R.prevNote ? `<p class="note end">${esc(R.prevNote)}.</p>` : '');
+    cells: [x.label, `${pct(x.rate)} · ${n0(x.bad)} of ${n0(x.n)}${x.thin ? ' (too few)' : ''}`, !R.coverage.prevTracked ? 'not collected yet' : x.prev ? `${pct(x.prev.bad / x.prev.n)} · ${n0(x.prev.bad)} of ${n0(x.prev.n)}` : 'not used', R.coverage.prevTracked && x.prev ? pp(x.rate, x.prev.bad / x.prev.n).replace(' pp', ' points') : '—'],
+  })));
 }
 
 function wire(id, set) {
@@ -325,6 +379,7 @@ function wire(id, set) {
 }
 wire('host', (v) => (host = v));
 wire('range', (v) => (days = Number(v)));
+document.getElementById('more').addEventListener('toggle', (e) => { if (e.target.open && current) details(current); });
 let resizeTimer = null;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
 render();
