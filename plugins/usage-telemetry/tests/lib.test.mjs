@@ -221,6 +221,8 @@ import { existsSync, readdirSync, writeFileSync as writeText } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const END = Date.parse('2026-09-26T15:00:00Z')
+// The fixtures' chats are older than the Jev-log fix; the rule that leaves such chats out has its own test.
+const TEST_FIXES = { skills: Date.parse('2026-09-26T14:16:47Z'), jevLog: 0 }
 const byId = (checks) => Object.fromEntries(checks.map((c) => [c.id, c]))
 const mins = (m) => END - m * 60000
 
@@ -242,13 +244,13 @@ test('staleness is measured from the build time, 26 h', () => {
 const LONG_AGO = END - 60 * DAY // collection began well before both windows
 
 test('a window with no events is not tracked everywhere, never green', () => {
-  const { checks, verdict } = runChecks({ rows: [], turns: [], generatedAt: END, days: 7 })
+  const { checks, verdict } = runChecks({ fixes: TEST_FIXES, rows: [], turns: [], generatedAt: END, days: 7 })
   assert.ok(checks.every((c) => c.state === 'untracked'), JSON.stringify(checks.map((c) => c.state)))
   assert.equal(verdict.state, 'untracked')
   assert.match(verdict.text, /None of 7 checks/)
   // events eight days before the build: this window is empty, so still not tracked
   const old = [{ k: 'prompt', t: END - 8 * DAY, s: 0, h: 'cloud', a: 'main' }, { k: 'tool', t: END - 8 * DAY, s: 0, h: 'cloud', tl: 'Skill', sk: 'pdf', ok: true }]
-  const again = byId(runChecks({ rows: old, generatedAt: END, days: 7, since: LONG_AGO }).checks)
+  const again = byId(runChecks({ fixes: TEST_FIXES, rows: old, generatedAt: END, days: 7, since: LONG_AGO }).checks)
   assert.equal(again['jev-deciding'].state, 'untracked')
   assert.equal(again.skills.state, 'untracked')
   assert.equal(again.reporting.state, 'attention', 'cloud reported last window, not this one')
@@ -264,7 +266,7 @@ test('coverage: a previous window that starts before the first event is not trac
     { k: 'router.call', t: mins(5), s: 0, h: 'cloud', ok: true, d: {} },
   ]
   for (const days of [1, 7, 30, 90]) {
-    const R = runChecks({ rows, generatedAt: END, days })
+    const R = runChecks({ fixes: TEST_FIXES, rows, generatedAt: END, days })
     assert.equal(R.coverage.since, since)
     assert.equal(R.coverage.partial, true)
     assert.equal(R.coverage.covered, 72 * 60000)
@@ -276,24 +278,24 @@ test('coverage: a previous window that starts before the first event is not trac
     assert.match(c.reporting.compare, /collection began/)
     assert.ok(!/none/.test(c.reporting.compare))
   }
-  const full = runChecks({ rows, generatedAt: END, days: 1, since: LONG_AGO })
+  const full = runChecks({ fixes: TEST_FIXES, rows, generatedAt: END, days: 1, since: LONG_AGO })
   assert.equal(full.coverage.prevTracked, true)
   assert.equal(full.prevNote, null)
 })
 
 test('reporting is not tracked, never green, when the previous window had no hosts', () => {
   const rows = [{ k: 'api', t: mins(5), s: 0, h: 'cloud' }]
-  const c = byId(runChecks({ rows, generatedAt: END, days: 7, since: LONG_AGO }).checks).reporting
+  const c = byId(runChecks({ fixes: TEST_FIXES, rows, generatedAt: END, days: 7, since: LONG_AGO }).checks).reporting
   assert.equal(c.state, 'untracked')
   const both = [...rows, { k: 'api', t: END - 8 * DAY, s: 0, h: 'cloud' }]
-  assert.equal(byId(runChecks({ rows: both, generatedAt: END, days: 7, since: LONG_AGO }).checks).reporting.state, 'pass')
+  assert.equal(byId(runChecks({ fixes: TEST_FIXES, rows: both, generatedAt: END, days: 7, since: LONG_AGO }).checks).reporting.state, 'pass')
 })
 
 test('Jev deciding is a rate (target 95%), keeps the lag as a fact, and counts suggestions without decisions', () => {
   const prompts = Array.from({ length: 20 }, (_, i) => ({ k: 'prompt', t: mins(120 - i * 5), s: 0, h: 'cloud', a: 'main' }))
   const decisions = prompts.slice(0, 18).map((p, i) => ({ k: 'jev.decision', t: p.t + 500, s: 0, h: 'cloud', sk: i === 0 ? 'pdf' : undefined, d: { decidedBy: 'jev' } }))
   const rows = [...prompts, ...decisions, { k: 'jev.suggested', t: prompts[19].t, s: 0, h: 'cloud', sk: 'pdf' }]
-  const c = byId(runChecks({ rows, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-deciding']
+  const c = byId(runChecks({ fixes: TEST_FIXES, rows, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-deciding']
   assert.equal(c.figure, '90% decided')
   assert.equal(c.state, 'attention', '18 of 20 is under 95%')
   assert.equal(c.stats.gaps, 2)
@@ -301,19 +303,47 @@ test('Jev deciding is a rate (target 95%), keeps the lag as a fact, and counts s
   assert.ok(c.lines.some((l) => /gone quiet/.test(l)), 'the lag is stated')
   assert.ok(c.lines.some((l) => l.startsWith('1 of 18 Jev decisions picked a skill')))
   const all = [...prompts, ...prompts.map((p) => ({ k: 'jev.decision', t: p.t + 500, s: 0, h: 'cloud', d: { decidedBy: 'jev' } }))]
-  assert.equal(byId(runChecks({ rows: all, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-deciding'].state, 'pass')
-  assert.equal(byId(runChecks({ rows: all.slice(0, 2), generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-deciding'].state, 'thin')
+  assert.equal(byId(runChecks({ fixes: TEST_FIXES, rows: all, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-deciding'].state, 'pass')
+  assert.equal(byId(runChecks({ fixes: TEST_FIXES, rows: [prompts[0], { ...all[20], t: prompts[0].t + 500 }], generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-deciding'].state, 'thin')
+})
+
+test('Jev deciding leaves out chats it cannot judge: older Jev, no Jev loaded, and the "off" group', () => {
+  const fix = Date.parse('2026-09-26T14:16:47Z')
+  const fixes = { skills: fix, jevLog: fix }
+  const at = (m) => fix + m * 60000
+  const rows = []
+  // Chat 0 started before the log existed: 12 prompts, 3 decisions early on.
+  for (let i = 0; i < 12; i++) rows.push({ k: 'prompt', t: at(-10 + i * 5), s: 0, h: 'cloud', a: 'main' })
+  for (let i = 0; i < 3; i++) rows.push({ k: 'jev.decision', t: at(-10 + i * 5) + 500, s: 0, h: 'cloud', d: { decidedBy: 'jev' } })
+  // Chat 1: no Jev record at all.
+  for (let i = 0; i < 5; i++) rows.push({ k: 'prompt', t: at(10 + i), s: 1, h: 'cloud', a: 'main' })
+  // Chat 2: the "off" group.
+  rows.push({ k: 'jev.arm', t: at(20), s: 2, h: 'cloud', d: { arm: 'off' } })
+  for (let i = 0; i < 4; i++) rows.push({ k: 'prompt', t: at(21 + i), s: 2, h: 'cloud', a: 'main' })
+  // Chat 3: current Jev, a decision for every prompt.
+  rows.push({ k: 'jev.arm', t: at(30), s: 3, h: 'cloud', d: { arm: 'on' } })
+  for (let i = 0; i < 10; i++) {
+    rows.push({ k: 'prompt', t: at(31 + i), s: 3, h: 'cloud', a: 'main' })
+    rows.push({ k: 'jev.decision', t: at(31 + i) + 500, s: 3, h: 'cloud', d: { decidedBy: 'jev' } })
+  }
+  const c = byId(runChecks({ fixes, rows, generatedAt: at(60), days: 1, since: at(-60) }).checks)['jev-deciding']
+  assert.equal(c.state, 'pass')
+  assert.equal(c.figure, '100% decided')
+  assert.deepEqual(c.stats.left, { old: 12, off: 4, none: 5 })
+  assert.ok(c.lines.some((l) => l.startsWith('Not counted: 12 prompts in 1 chat started before Jev kept a log')))
+  assert.ok(c.lines.some((l) => l.includes('where Jev never logged anything')))
+  assert.ok(c.lines.some((l) => l.includes('"off" group')))
 })
 
 test('Jev picking states the span its decisions cover and goes partial when the log went quiet', () => {
   const decisions = Array.from({ length: 16 }, (_, i) => ({ k: 'jev.decision', t: mins(60 - i), s: 0, h: 'cloud', d: { decidedBy: 'jev' } }))
   const lastDecision = mins(45)
   const quiet = [...decisions, { k: 'prompt', t: mins(5), s: 0, h: 'cloud', a: 'main' }]
-  const c = byId(runChecks({ rows: quiet, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-picking']
+  const c = byId(runChecks({ fixes: TEST_FIXES, rows: quiet, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-picking']
   assert.equal(c.state, 'partial')
   assert.ok(c.lines[0].includes(`decisions up to ${fmtTime(lastDecision)}`))
   assert.match(c.population, /including ones not tied to a prompt/)
-  const fine = byId(runChecks({ rows: decisions, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-picking']
+  const fine = byId(runChecks({ fixes: TEST_FIXES, rows: decisions, generatedAt: END, days: 7, since: LONG_AGO }).checks)['jev-picking']
   assert.equal(fine.state, 'pass')
 })
 
@@ -322,16 +352,16 @@ test('rates: skills refused are red at any n; thin rates are grey; router with n
   const router = [{ k: 'router.call', t: mins(3), s: 0, h: 'cloud', m: 'x/y', ok: true, d: {} }]
   const misses = [{ k: 'jev.miss', t: mins(2), s: 0, h: 'cloud', sk: 'dataviz', d: { signal: 'typed-after', jevPick: 'pdf' } }]
   const decisions = Array.from({ length: 16 }, (_, i) => ({ k: 'jev.decision', t: mins(10 + i), s: 0, h: 'cloud', d: { decidedBy: 'jev' } }))
-  const c = byId(runChecks({ rows: [...skills, ...router, ...misses, ...decisions], generatedAt: END, days: 7 }).checks)
+  const c = byId(runChecks({ fixes: TEST_FIXES, rows: [...skills, ...router, ...misses, ...decisions], generatedAt: END, days: 7 }).checks)
   assert.equal(c.skills.state, 'attention')
   assert.equal(c.skills.figure, '5 of 5 refused')
   assert.equal(c.router.state, 'thin')
   assert.equal(c['jev-picking'].state, 'pass')
   assert.equal(c['jev-picking'].figure, '6% misrouted')
   assert.ok(c['jev-picking'].lines.some((l) => /expected dataviz/.test(l)))
-  assert.equal(byId(runChecks({ rows: skills, generatedAt: END, days: 7 }).checks).router.state, 'untracked')
+  assert.equal(byId(runChecks({ fixes: TEST_FIXES, rows: skills, generatedAt: END, days: 7 }).checks).router.state, 'untracked')
   const calls = Array.from({ length: 10 }, (_, i) => ({ k: 'router.call', t: mins(i + 1), s: 0, h: 'cloud', ok: i > 1, d: {} }))
-  assert.equal(byId(runChecks({ rows: calls, generatedAt: END, days: 7 }).checks).router.state, 'attention', '2 of 10 is over 10%')
+  assert.equal(byId(runChecks({ fixes: TEST_FIXES, rows: calls, generatedAt: END, days: 7 }).checks).router.state, 'attention', '2 of 10 is over 10%')
 })
 
 test('tools: over 10% fails, coloured only from n >= 10', () => {
@@ -345,7 +375,7 @@ test('landing compares with the previous window in percentage points', () => {
     ...Array.from({ length: 10 }, (_, i) => ({ t: mins(i + 1), h: 'cloud', land: i < 9, c: 1 })),
     ...Array.from({ length: 10 }, (_, i) => ({ t: END - 8 * DAY - i, h: 'cloud', land: i < 7, c: 1 })),
   ]
-  const c = byId(runChecks({ rows: [], turns, generatedAt: END, days: 7, since: LONG_AGO }).checks).landing
+  const c = byId(runChecks({ fixes: TEST_FIXES, rows: [], turns, generatedAt: END, days: 7, since: LONG_AGO }).checks).landing
   assert.equal(c.state, 'pass')
   assert.match(c.compare, /70% of 10 · \+20 pp/)
   assert.deepEqual(landStats([{ land: true }, { land: null }]), { turns: 2, known: 1, landed: 1, open: 1, rate: 1 })
@@ -363,7 +393,7 @@ test('verdict counts targeted checks; a host filter leaves out account-wide chec
   const credit = T('attention', { account: true })
   assert.equal(verdictOf([T('pass'), credit], 'all').text, '1 of 2 checks needs attention')
   assert.equal(verdictOf([T('pass'), credit], 'cloud').text, 'All 1 check passing')
-  const R = runChecks({ rows: [], generatedAt: END, days: 7, host: 'local' })
+  const R = runChecks({ fixes: TEST_FIXES, rows: [], generatedAt: END, days: 7, host: 'local' })
   assert.match(R.verdict.text, /of 6 checks/, 'OpenRouter credit is left out under a host filter')
 })
 
@@ -386,13 +416,13 @@ test('OpenRouter spend reconciles: key usage = routed (logged) + Jev (not logged
   assert.equal(week.routedCalls, 2)
   assert.ok(Math.abs(week.unattributed - (0.3 - 0.010018)) < 1e-12)
   assert.equal(reconcile({ ...key, d: { usage_daily: 0 } }, rows, 'daily').closes, false, 'logged cost above the key does not close')
-  const c = byId(runChecks({ rows, generatedAt: END, days: 1 }).checks).openrouter
+  const c = byId(runChecks({ fixes: TEST_FIXES, rows, generatedAt: END, days: 1 }).checks).openrouter
   assert.equal(c.state, 'pass')
   assert.ok(c.lines.some((l) => l.includes('Spend on this key, UTC day') && l.includes('$0.25')))
   assert.ok(!/\$0\.000018/.test(c.figure), 'the routed log is never the spend figure')
-  const old = byId(runChecks({ rows, generatedAt: key.t + 27 * 3600000, days: 1 }).checks).openrouter
+  const old = byId(runChecks({ fixes: TEST_FIXES, rows, generatedAt: key.t + 27 * 3600000, days: 1 }).checks).openrouter
   assert.equal(old.state, 'untracked', 'a key check older than 26 h is not shown as current')
-  const low = byId(runChecks({ rows: [{ ...key, d: { ...key.d, total_usage: 9.5 } }], generatedAt: END, days: 1 }).checks).openrouter
+  const low = byId(runChecks({ fixes: TEST_FIXES, rows: [{ ...key, d: { ...key.d, total_usage: 9.5 } }], generatedAt: END, days: 1 }).checks).openrouter
   assert.equal(low.state, 'attention')
 })
 
@@ -498,10 +528,10 @@ test('reconciliation sums dollars only, states Jev separately, and refuses a per
   const week = reconcile(key, rows, 'weekly', since)
   assert.equal(week.reconcilable, false)
   assert.equal(week.unattributed, null)
-  const c = byId(runChecks({ rows, generatedAt: END, days: 7, since }).checks).openrouter
+  const c = byId(runChecks({ fixes: TEST_FIXES, rows, generatedAt: END, days: 7, since }).checks).openrouter
   assert.ok(c.lines.some((l) => /^Not reconcilable: the key's UTC week to date began .* before collection began/.test(l)))
   assert.ok(!c.lines.some((l) => /= routed calls/.test(l)))
-  const day = byId(runChecks({ rows, generatedAt: END, days: 1, since: Date.parse('2026-09-25T00:00:00Z') }).checks).openrouter
+  const day = byId(runChecks({ fixes: TEST_FIXES, rows, generatedAt: END, days: 1, since: Date.parse('2026-09-25T00:00:00Z') }).checks).openrouter
   const sum = day.lines.find((l) => l.includes('= routed calls'))
   assert.equal(sum, '$0.25 = routed calls $0.05 (1 call, cost logged) + unattributed $0.20')
   assert.ok(day.lines.some((l) => /^Jev's decision calls \(1 this period\) .* not logged/.test(l)))
@@ -635,7 +665,7 @@ function mixedBuild() {
 }
 
 function topBlock(data, { days = 7, host = 'all', stale = false } = {}) {
-  const R = runChecks({ rows: data.rows, turns: data.turns, generatedAt: END, days, host, since: Date.parse(data.firstEventAt) })
+  const R = runChecks({ fixes: TEST_FIXES, rows: data.rows, turns: data.turns, generatedAt: END, days, host, since: Date.parse(data.firstEventAt) })
   const rows = plainChecks(R, { days, end: END, host, stale, builtAgo: '8 days' })
   const actions = actionsFor(R.checks, { stale, builtAgo: '8 days', end: END, prevStarts: R.coverage.prevStarts, host })
   return { R, rows, actions, checks: checksHtml(rows), todo: actionsHtml(actions), verdict: verdictPlain(R, { stale, builtAgo: '8 days', host }), spend: spendPlain(R, data.rows, { days, end: END, host }) }
