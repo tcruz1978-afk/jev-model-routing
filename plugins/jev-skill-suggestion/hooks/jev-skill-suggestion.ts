@@ -264,6 +264,29 @@ async function offload(
   }
 }
 
+/** This session's group of the on/off comparison, logged the first time it is asked for. */
+async function armFor(
+  $: Parameters<typeof record>[0] & { ui: { log: (text: string) => void } },
+  arms: Map<string, Arm>,
+  armShares: { off: number; noRouter: number },
+  logDecisions: boolean,
+): Promise<Arm> {
+  let id = ''
+  try {
+    id = await $.session.id()
+  } catch {
+    id = ''
+  }
+  if (!id) return 'on'
+  const known = arms.get(id)
+  if (known) return known
+  const arm = armOf(id, armShares)
+  arms.set(id, arm)
+  if (arm !== 'on' && logDecisions) $.ui.log(`[jev-skill-suggestion] this session is in the ${arm === 'off' ? '"off"' : '"no router"'} group of the on/off comparison`)
+  await record($, { kind: 'jev.arm', arm, shares: armShares }, logDecisions)
+  return arm
+}
+
 export const register: Register = (on, options) => {
   const text = (key: string, fallback: string) =>
     typeof options[key] === 'string' && options[key] ? (options[key] as string) : fallback
@@ -359,23 +382,6 @@ export const register: Register = (on, options) => {
   // Jev nor the router, and with Jev but no router. 0 and 0 turns it off.
   const armShares = { off: number('compareOff', DEFAULT_ARM_SHARES.off), noRouter: number('compareNoRouter', DEFAULT_ARM_SHARES.noRouter) }
   const arms = new Map<string, Arm>()
-  /** This session's group, logged the first time it is asked for. */
-  const armFor = async ($: Parameters<typeof record>[0] & { ui: { log: (text: string) => void } }): Promise<Arm> => {
-    let id = ''
-    try {
-      id = await $.session.id()
-    } catch {
-      id = ''
-    }
-    if (!id) return 'on'
-    const known = arms.get(id)
-    if (known) return known
-    const arm = armOf(id, armShares)
-    arms.set(id, arm)
-    if (arm !== 'on' && logDecisions) $.ui.log(`[jev-skill-suggestion] this session is in the ${arm === 'off' ? '"off"' : '"no router"'} group of the on/off comparison`)
-    await record($, { kind: 'jev.arm', arm, shares: armShares }, logDecisions)
-    return arm
-  }
   const policy: PolicyConfig = {
     shortlist: Math.max(1, Math.round(number('shortlist', DEFAULT_POLICY.shortlist))),
     gateThreshold: number('gateThreshold', DEFAULT_POLICY.gateThreshold),
@@ -452,7 +458,7 @@ export const register: Register = (on, options) => {
     }
 
     // The "off" group of the on/off comparison: the listing stays as Claude Code sends it.
-    if ((await armFor($)) === 'off') return next(e)
+    if ((await armFor($, arms, armShares, logDecisions)) === 'off') return next(e)
 
     const skills = parseListing(e.text)
     for (const skill of skills) listed.add(skill.name)
@@ -496,7 +502,7 @@ export const register: Register = (on, options) => {
     }
     suggested = null
     // The "off" group of the on/off comparison: no Jev, no router, the prompt as typed.
-    const arm = await armFor($)
+    const arm = await armFor($, arms, armShares, logDecisions)
     if (arm === 'off') return next(e)
 
     // The user's answer to the pick they were shown last time, if this prompt

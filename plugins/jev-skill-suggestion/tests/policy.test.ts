@@ -693,3 +693,12 @@ test('armOf puts a session in the same group every time, in the shares asked for
   expect(ids.every((id) => armOf(id, { off: 1, noRouter: 0.5 }) === 'off')).toBe(true)
   expect(ids.every((id) => armOf(id, { off: Number.NaN, noRouter: -1 }) === 'on')).toBe(true)
 })
+
+// Claude Code refuses a hooks module that passes `$` to anything but a function
+// declared at the top of the file (`claude plugin validate`), and a refused
+// module never loads: this broke twice (v0.4.1, v0.5.2).
+test('the hooks module declares every helper that takes $ at the top of the file', async () => {
+  const source = await Bun.file(new URL('../hooks/jev-skill-suggestion.ts', import.meta.url)).text()
+  const nested = source.split('\n').filter((line) => /^\s+(const|let)\s+\w+\s*=\s*async\s*\(\s*\$\s*[:,)]/.test(line))
+  expect(nested).toEqual([])
+})
