@@ -79,6 +79,13 @@ Free models allow 20 requests a minute and 50 a day (1,000 once $10 of credit
 has been bought): on a 429, wait a minute and retry, or name a free model
 from another family (`--model <id>:free`).
 
+A named free model that is refused (rate-limited, no longer free, or
+restricted) is replaced by its own family, so a review gate's reviewers stay
+theirs: the family's other free models first, then the same model paid
+(cents), except for an owned family (`openai`, `google`, `anthropic`), whose
+paid models stay the subscription's. A 402 that names in-flight requests is
+retried once: the balance is fine once the running calls finish.
+
 ## Judgement quotient (JQ)
 
 - `--jq <1-5>` or `--team <name>` sets how often the work must be right: the
