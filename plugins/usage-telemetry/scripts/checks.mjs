@@ -113,15 +113,21 @@ const near = (list, r, ms = TARGETS.matchMs) => list.some((d) => d.s === r.s && 
  * window still counts.
  */
 export function jevChats(all, fixes = FIXES) {
-  const start = new Map(), logged = new Set(), off = new Set()
+  const start = new Map(), logged = new Set(), off = new Set(), firstLog = new Map()
   for (const r of all) {
     if (!(r.s >= 0)) continue
     if (!(start.get(r.s) <= r.t)) start.set(r.s, r.t)
-    if (r.k === 'jev.decision' || r.k === 'jev.arm') logged.add(r.s)
+    if (r.k === 'jev.decision' || r.k === 'jev.arm') {
+      logged.add(r.s)
+      if (!(firstLog.get(r.s) <= r.t)) firstLog.set(r.s, r.t)
+    }
     if (r.k === 'jev.arm' && r.d?.arm === 'off') off.add(r.s)
   }
   const why = (s) => (start.get(s) < fixes.jevLog ? 'old' : off.has(s) ? 'off' : !logged.has(s) ? 'none' : null)
-  return { why }
+  // A prompt before a chat's first Jev record came before the current Jev was loaded there (a chat
+  // restarted onto new code): counted with "never logged", not as a miss.
+  const whyPrompt = (p) => why(p.s) ?? (p.t < firstLog.get(p.s) - TARGETS.matchMs ? 'none' : null)
+  return { why, whyPrompt }
 }
 
 export function decidingStats(rows, all = rows, fixes = FIXES) {
@@ -131,7 +137,7 @@ export function decidingStats(rows, all = rows, fixes = FIXES) {
   const left = { old: 0, off: 0, none: 0 }
   const leftChats = { old: new Set(), off: new Set(), none: new Set() }
   const prompts = everyPrompt.filter((p) => {
-    const why = chats.why(p.s)
+    const why = chats.whyPrompt(p)
     if (!why) return true
     left[why]++
     leftChats[why].add(p.s)
@@ -192,7 +198,7 @@ function checkDeciding(cur, prev, ctx) {
   if (a.decisions) lines.push(`${n0(a.picked)} of ${plural(a.decisions, 'Jev decision')} picked a skill · ${n0(a.byJev)} decided by Jev, ${n0(a.byBackup)} by the backup model, ${n0(a.decisions - a.byJev - a.byBackup - a.skipped)} by the built-in picker${a.skipped ? `, ${n0(a.skipped)} skipped (no skills to choose from)` : ''}`)
   if (a.unmatched) lines.push(`${plural(a.unmatched, 'Jev suggestion')} seen in transcripts with no logged decision: Jev ran, the decision log did not record it`)
   if (a.left.old) lines.push(`Not counted: ${plural(a.left.old, 'prompt')} in ${plural(a.leftChats.old, 'chat')} started before Jev kept a log (an older Jev; new chats log every pick).`)
-  if (a.left.none) lines.push(`Not counted: ${plural(a.left.none, 'prompt')} in ${plural(a.leftChats.none, 'chat')} where Jev never logged anything (Jev not loaded there, or a one-off chat).`)
+  if (a.left.none) lines.push(`Not counted: ${plural(a.left.none, 'prompt')} in ${plural(a.leftChats.none, 'chat')} where Jev wasn't logging yet (not loaded there, or before the chat restarted onto the current Jev).`)
   if (a.left.off) lines.push(`Not counted: ${plural(a.left.off, 'prompt')} in ${plural(a.leftChats.off, 'chat')} in the "off" group of the on/off comparison (no Jev, by design).`)
   if (!a.prompts) return { ...base, state: 'untracked', figure: 'Not tracked', population: 'No prompts in chats running the current Jev.', compare: '', lines }
   return {
