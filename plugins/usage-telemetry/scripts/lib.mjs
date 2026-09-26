@@ -352,6 +352,45 @@ export function eventFromLog(raw, host) {
   return null
 }
 
+/**
+ * One line of a judgement-quotient (JQ) log (jev-skill-suggestion's
+ * jq-log.mjs format) as an event: a decision with its tool, answer and
+ * stated confidence, or an outcome (kept, overruled, asked). The question is
+ * never sent: it can hold the prompt's words.
+ */
+export function eventFromJq(raw, host) {
+  let record
+  try {
+    record = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  const id = typeof record?.id === 'string' && /^[0-9a-f]{4,32}$/i.test(record.id) ? record.id : null
+  const ts = Number.isFinite(record?.t) ? new Date(record.t).toISOString() : null
+  if (!id || !ts) return null
+  const common = { ts, session: null, host, project: null, agent: null }
+  if (record.kind === 'decision') {
+    const confidence = Number.isFinite(record.confidence) ? record.confidence : null
+    return base({
+      id: `jq:${id}`,
+      kind: 'jq.decision',
+      ...common,
+      tool: typeof record.tool === 'string' ? record.tool.slice(0, 80) : null,
+      data: { jq: id, answer: record.answer === undefined || record.answer === null ? null : String(record.answer).slice(0, 80), confidence, decidedBy: typeof record.decidedBy === 'string' ? record.decidedBy.slice(0, 80) : null },
+    })
+  }
+  if (record.kind === 'outcome' && ['kept', 'overruled', 'asked'].includes(record.outcome)) {
+    return base({ id: `jqo:${id}:${record.t}`, kind: 'jq.outcome', ...common, ok: record.outcome === 'kept', data: { jq: id, outcome: record.outcome } })
+  }
+  return null
+}
+
+/** Where JQ logs live, by jq-log.mjs's rule: JQ_LOG_FILE, the shared project folder, ~/.jq. */
+export function jqLogPaths(env, home) {
+  if (env.JQ_LOG === 'off') return []
+  return [...new Set([env.JQ_LOG_FILE, '/mnt/project-files/judgement-quotient/decisions.jsonl', home ? join(home, '.jq', 'decisions.jsonl') : null].filter(Boolean))]
+}
+
 /** OpenRouter's /key answer as one snapshot event per key per hour. */
 export function keySnapshot(key, credits, host, now = new Date()) {
   const hour = now.toISOString().slice(0, 13)

@@ -4,33 +4,38 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude Usage Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
 <style>
 :root {
-  --bg: #f6f6f7; --panel: #ffffff; --ink: #1d1d1f; --muted: #626268; --faint: #8e8e93; --line: #e4e4e7; --soft: #f1f1f3;
-  --good: #2f7d3b; --bad: #c0362c; --warn: #a86400; --na: #8e8e93;
-  --bad-bg: #fbeeec; --good-bg: #eef6ef; --warn-bg: #fdf3e3;
-  --s1: #2f6fb5; --s2: #d9822b; --s3: #3a9d6a; --s4: #8e5bb5; --s5: #c24d6b; --s6: #9a9aa0; --s7: #1f94a3; --s8: #a8861c; --s9: #6b7fd6;
-  --accent: #2f6fb5; --accent-soft: #e7eef8; --tip-bg: #1d1d1f; --tip-ink: #ffffff;
+  --bg: #f6f6f8; --panel: #ffffff; --ink: #16161a; --muted: #6b6b76; --faint: #8a8a93; --line: #e6e6ea; --soft: #f0f0f3;
+  --good: #1f6b3a; --bad: #b8322a; --warn: #a2520f; --na: #8a8a93;
+  --bad-bg: #fbeeec; --good-bg: #e9f5ee; --warn-bg: #fdf4e8; --warn-line: #f0c9a5;
+  --s1: #4f4fcf; --s2: #2a9d8f; --s3: #d9731f; --s4: #b8408f; --s5: #b8408f; --s6: #a2a2ab; --s7: #2a9d8f; --s8: #d9731f; --s9: #4f4fcf;
+  --accent: #4f4fcf; --accent-soft: #eef0ff; --tip-bg: #16161a; --tip-ink: #ffffff;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #141416; --panel: #1c1c1f; --ink: #ececef; --muted: #a3a3aa; --faint: #7c7c84; --line: #2e2e33; --soft: #242428;
+    color-scheme: dark;
+    --bg: #131315; --panel: #1b1b1e; --ink: #ececef; --muted: #a6a6ae; --faint: #7e7e87; --line: #2d2d32; --soft: #242428;
     --good: #6cc47a; --bad: #ff7b6e; --warn: #f0b252; --na: #8a8a92;
-    --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213;
-    --s1: #6ea8ea; --s2: #f0a45a; --s3: #5cc28d; --s4: #b58be0; --s5: #ea7c97; --s6: #75757d; --s7: #4cc3cf; --s8: #d9b24f; --s9: #98a6f0;
-    --accent: #6ea8ea; --accent-soft: #1f2a38; --tip-bg: #ececef; --tip-ink: #141416;
+    --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213; --warn-line: #5c4219;
+    --s1: #6f6fdb; --s2: #1fa08d; --s3: #cc7a30; --s4: #c0509c; --s5: #c0509c; --s6: #6e6e76; --s7: #1fa08d; --s8: #cc7a30; --s9: #6f6fdb;
+    --accent: #9d9df5; --accent-soft: #24243f; --tip-bg: #ececef; --tip-ink: #131315;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #141416; --panel: #1c1c1f; --ink: #ececef; --muted: #a3a3aa; --faint: #7c7c84; --line: #2e2e33; --soft: #242428;
+  color-scheme: dark;
+  --bg: #131315; --panel: #1b1b1e; --ink: #ececef; --muted: #a6a6ae; --faint: #7e7e87; --line: #2d2d32; --soft: #242428;
   --good: #6cc47a; --bad: #ff7b6e; --warn: #f0b252; --na: #8a8a92;
-  --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213;
-  --s1: #6ea8ea; --s2: #f0a45a; --s3: #5cc28d; --s4: #b58be0; --s5: #ea7c97; --s6: #75757d; --s7: #4cc3cf; --s8: #d9b24f; --s9: #98a6f0;
-  --accent: #6ea8ea; --accent-soft: #1f2a38; --tip-bg: #ececef; --tip-ink: #141416;
+  --bad-bg: #2d1b19; --good-bg: #172419; --warn-bg: #2b2213; --warn-line: #5c4219;
+  --s1: #6f6fdb; --s2: #1fa08d; --s3: #cc7a30; --s4: #c0509c; --s5: #c0509c; --s6: #6e6e76; --s7: #1fa08d; --s8: #cc7a30; --s9: #6f6fdb;
+  --accent: #9d9df5; --accent-soft: #24243f; --tip-bg: #ececef; --tip-ink: #131315;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-x: hidden; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow-x: hidden; }
 button, select, input { font: inherit; color: inherit; }
 details > summary { cursor: pointer; }
 details > summary::-webkit-details-marker { display: none; }
@@ -210,6 +215,95 @@ details.how ol { margin: 6px 0 0; padding-left: 20px; overflow-wrap: anywhere; }
 .more section { padding: 4px 16px 14px; border-top: 1px solid var(--line); }
 .more h3 { font-size: 13.5px; margin: 12px 0 4px; }
 ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
+/* rankings and compare */
+.eyebrow { font-size: 12.5px; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 10px; }
+.block { margin-bottom: 18px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tile.warn { border-color: var(--warn-line); }
+.tile .lab { font-size: 13px; color: var(--muted); }
+.tile .big { font-family: var(--mono); font-size: 30px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.tile .ds { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.tile .ds b { color: var(--ink); font-weight: 600; }
+.tile .ds b.good { color: var(--good); }
+.tile .ds b.warn { color: var(--warn); }
+.card-top { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: flex-end; justify-content: space-between; margin-bottom: 10px; }
+.card-top h2 { font-size: 18px; margin: 0 0 2px; }
+.card-top .note { margin: 0; }
+.cats { display: flex; flex-wrap: wrap; gap: 7px; margin: 4px 0 14px; }
+.cats button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; }
+.cats button:hover { border-color: var(--faint); }
+.cats button[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.cats button .c { color: var(--faint); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.cats button[aria-pressed="true"] .c { color: inherit; opacity: .7; }
+.notice { display: flex; gap: 10px; align-items: flex-start; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--ink); border-radius: 8px; padding: 9px 12px; font-size: 13px; margin: 0 0 12px; }
+.notice[hidden] { display: none; }
+.notice svg { flex: none; margin-top: 2px; }
+.lead { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+.board { display: flex; flex-direction: column; min-width: 0; }
+.board .bh, .board .br { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 70px; gap: 10px; align-items: center; }
+.board .bh { font-size: 12px; color: var(--faint); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.board .br { padding: 10px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.board .br:hover { background: var(--soft); }
+.board .rk { font-family: var(--mono); color: var(--faint); }
+.board .nm { display: flex; flex-direction: column; min-width: 0; }
+.board .nm b { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 7px; }
+.board .nm span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board .v, .board .sh { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.board .sh { color: var(--muted); font-size: 12.5px; }
+.tasks { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.task { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.task:hover { border-color: var(--faint); }
+.task[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.task .th { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.task .th b { font-weight: 600; }
+.task .th span { font-size: 12px; color: var(--faint); }
+.task .tm { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; font-size: 13px; align-items: baseline; }
+.task .tm .r { font-family: var(--mono); color: var(--faint); }
+.task .tm .x { font-family: var(--mono); font-size: 12.5px; }
+.task .tm.thin { color: var(--faint); }
+.pick { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.perf { display: flex; flex-direction: column; gap: 9px; }
+.perf .pr { display: grid; grid-template-columns: 26px minmax(90px, 190px) minmax(0, 1fr) minmax(120px, auto); gap: 14px; align-items: center; font-size: 14px; cursor: pointer; }
+.perf .pr:hover .n { text-decoration: underline; }
+.perf .pr .r { font-family: var(--mono); color: var(--faint); }
+.perf .pr .n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perf .pr .track { height: 14px; background: var(--soft); border-radius: 3px; overflow: hidden; }
+.perf .pr .fill { display: block; height: 100%; border-radius: 0 3px 3px 0; }
+.perf .pr .x { font-family: var(--mono); text-align: right; font-size: 13px; white-space: nowrap; }
+.perf .pr.thin { color: var(--faint); }
+.perf .pr.thin .n { color: var(--muted); }
+.perf .sep { font-size: 12px; color: var(--faint); margin-top: 6px; }
+.eff { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.effc { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.effc.off { border-style: dashed; }
+.effc .eh { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.effc .eh b { font-size: 16px; font-weight: 650; }
+.pill { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.pill.good { color: var(--good); border-color: currentColor; }
+.effc p { margin: 0; font-size: 13.5px; line-height: 1.55; }
+.effc dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; margin: 0; font-size: 13px; }
+.effc dt { color: var(--muted); }
+.effc dd { margin: 0; font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.effc dd.good { color: var(--good); }
+.cm-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.cm-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--soft); border-radius: 999px; padding: 3px 4px 3px 10px; font-size: 13px; }
+.cm-chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 5px; }
+.minis { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px; }
+.mini { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.mini h3 { margin: 0 !important; font-size: 13px; }
+.mini .mr { display: grid; grid-template-columns: 110px minmax(0, 1fr) 84px; gap: 8px; align-items: center; font-size: 12px; }
+.mini .mr span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini .mr .bar { height: 10px; border-radius: 0 3px 3px 0; min-width: 2px; }
+.mini .mr .x { font-family: var(--mono); text-align: right; }
+.mini .mr.na { color: var(--faint); }
+.big-num, td.mono { font-family: var(--mono); }
+@media (max-width: 900px) { .lead { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) {
+  .perf .pr { grid-template-columns: 22px minmax(70px, 30%) minmax(0, 1fr); }
+  .perf .pr .x { grid-column: 2 / -1; text-align: left; }
+  .mini .mr { grid-template-columns: 90px minmax(0, 1fr) 72px; }
+}
 @media (max-width: 640px) {
   .card { padding: 12px; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -247,13 +341,64 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
     </div>
   </div>
   <nav class="wrap tabs" id="tabs" role="tablist" aria-label="Sections">
-    <button role="tab" data-tab="overview" aria-controls="tab-overview">Overview</button><button role="tab" data-tab="explore" aria-controls="tab-explore">Explore</button><button role="tab" data-tab="logs" aria-controls="tab-logs">Logs</button><button role="tab" data-tab="jev" aria-controls="tab-jev">Jev</button><button role="tab" data-tab="router" aria-controls="tab-router">Router</button><button role="tab" data-tab="health" aria-controls="tab-health">Health</button>
+    <button role="tab" data-tab="rankings" aria-controls="tab-rankings">Rankings</button><button role="tab" data-tab="compare" aria-controls="tab-compare">Compare models</button><button role="tab" data-tab="overview" aria-controls="tab-overview">Spend</button><button role="tab" data-tab="explore" aria-controls="tab-explore">Explore</button><button role="tab" data-tab="logs" aria-controls="tab-logs">Logs</button><button role="tab" data-tab="jev" aria-controls="tab-jev">Jev</button><button role="tab" data-tab="router" aria-controls="tab-router">Router</button><button role="tab" data-tab="health" aria-controls="tab-health">Health</button>
   </nav>
 </header>
 <main class="wrap">
   <div class="banner" id="banner" role="alert"></div>
 
-  <!-- 1. Overview -->
+  <!-- Rankings (home) -->
+  <section class="tab" id="tab-rankings" role="tabpanel" hidden>
+    <section class="block" aria-labelledby="h-paid">
+      <h2 class="eyebrow" id="h-paid">What you paid, and what it bought</h2>
+      <div class="tiles" id="rk-paid"></div>
+      <p class="note" id="rk-paid-note" style="margin-top:8px"></p>
+    </section>
+    <section class="card" aria-labelledby="h-top">
+      <div class="card-top">
+        <div><h2 id="h-top">Top models</h2><p class="note" id="rk-top-note"></p></div>
+        <div class="seg" id="rk-show" role="group" aria-label="Show"><button data-v="spend">Spend</button><button data-v="tokens">Tokens</button><button data-v="calls">Model calls</button></div>
+      </div>
+      <div class="cats" id="rk-cats" role="group" aria-label="Kind of request"></div>
+      <p class="notice" id="rk-notice" hidden></p>
+      <div class="lead">
+        <div><div class="chart" id="rk-chart"></div><ul class="legend" id="rk-legend"></ul><div id="rk-pivot"></div></div>
+        <div class="board" id="rk-board"></div>
+      </div>
+    </section>
+    <section class="card" aria-labelledby="h-task">
+      <div class="card-top"><div><h2 id="h-task">Top models by task</h2><p class="note">Each kind of request's leading models, ranked by how often the answer landed. Too few to judge under 10. Click one to filter the page to it.</p></div></div>
+      <div class="tasks" id="rk-tasks"></div>
+    </section>
+    <section class="card" aria-labelledby="h-perf">
+      <div class="card-top">
+        <div><h2 id="h-perf">Performance ranking</h2><p class="note" id="rk-perf-note"></p></div>
+        <label class="pick" for="rk-by">Rank by <select id="rk-by"></select></label>
+      </div>
+      <div class="perf" id="rk-perf"></div>
+    </section>
+    <section class="card" aria-labelledby="h-eff">
+      <div class="card-top"><div><h2 id="h-eff">Is it making the work more efficient?</h2><p class="note">What Jev, the model router and JQ cost, and how the requests they touched went. These are comparisons, not proof of cause.</p></div></div>
+      <div class="eff" id="rk-eff"></div>
+    </section>
+  </section>
+
+  <!-- Compare models -->
+  <section class="tab" id="tab-compare" role="tabpanel" hidden>
+    <section class="card" aria-labelledby="h-cmp">
+      <div class="card-top"><div><h2 id="h-cmp">Compare models</h2><p class="note" id="cm-note"></p></div></div>
+      <div class="cm-pick" id="cm-pick"></div>
+      <div class="tbox" id="cm-table"></div>
+      <div class="minis" id="cm-minis"></div>
+    </section>
+    <section class="card" aria-labelledby="h-cmp-t">
+      <h2 id="h-cmp-t">Spend over time, <span id="cm-grain">day by day</span></h2>
+      <p class="note">Claude at pay-as-you-go prices; router models at what OpenRouter billed. Click a bar to see those calls.</p>
+      <div class="chart" id="cm-chart"></div><ul class="legend" id="cm-legend"></ul><div id="cm-pivot"></div>
+    </section>
+  </section>
+
+  <!-- 1. Spend (was Overview) -->
   <section class="tab" id="tab-overview" role="tabpanel" hidden>
     <section class="card" aria-labelledby="h-ov">
       <h2 id="h-ov">What did the models do, and what did it cost?</h2>
@@ -1040,13 +1185,171 @@ function healthTab(C, stale, builtAgo) {
   ].map((t) => `<li>${esc(t)}</li>`).join('');
 }
 
+// ---------- Rankings and Compare ----------
+
+// Each model keeps one colour for the whole page load (by spend across all the data), whatever the filters.
+const MODEL_ORDER = modelStats(DATA.rows, DATA.turns).map((s) => s.key);
+const MODEL_COLORS = ['var(--s1)', 'var(--s2)', 'var(--s3)', 'var(--s4)'];
+const colorOf = (key) => { const i = MODEL_ORDER.indexOf(key); return i >= 0 && i < MODEL_COLORS.length ? MODEL_COLORS[i] : OTHER_COLOR; };
+const keyOfDim = (v) => (String(v).startsWith('or:') ? 'r:' + v.slice(3) : 'c:' + v);
+const dimOfKey = (k) => (k.startsWith('r:') ? 'or:' + k.slice(2) : k.slice(2));
+const swatch = (key) => `<span class="sw" style="background:${colorOf(key)}"></span>`;
+const viaWords = (s) => (s.via === 'openrouter' ? `via the router${String(s.model ?? '').includes('/') ? ' · ' + esc(s.model.split('/')[0]) : ''}` : 'Anthropic');
+const modelLogs = (key) => toLogs({ model: [dimOfKey(key)], type: ['model', 'router'] });
+const pctOf = (r) => (r === null || r === undefined ? '—' : r > 0 && r < 0.001 ? 'under 0.1%' : pct(r));
+const INFO_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--warn)" stroke-width="1.5"/><line x1="8" y1="4.5" x2="8" y2="9" stroke="var(--warn)" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="11.3" r="0.9" fill="var(--warn)"/></svg>';
+
+function measureText(id, v) {
+  if (v === null || v === undefined) return '—';
+  if (id === 'landed' || id === 'failures' || id === 'cache') return pct(v);
+  if (id === 'speed') return durText(v);
+  return usd(v);
+}
+
+function rankingsTab(C) {
+  const { P, R, grain, words } = C;
+  const cur = R.cur, tcur = R.tcur;
+  const prompts = cur.filter((r) => r.k === 'prompt' && (!r.a || r.a === 'main'));
+
+  // 1. What you paid, and what it bought.
+  const S = paidSummary({ rows: DATA.rows, cur, tcur, from: P.from, to: P.to, since: SINCE, plan: DATA.plan ?? null });
+  const plan = S.plan;
+  const cr = S.credit, crShare = cr && cr.credit !== null && cr.total > 0 ? cr.credit / cr.total : null;
+  const crLow = (crShare !== null && crShare < TARGETS.creditFloor) || (cr && cr.daysLeft !== null && cr.daysLeft < 1);
+  const planWords = !plan ? 'No plan price set (plan.json)' : `${esc(plan.name)}: <b>${esc(usd(S.planUsd))}</b> (${S.partial ? `the ${esc(durText(P.to - S.coveredFrom))} recorded, of` : `${esc(words.cur)} of`} ${esc(usd(plan.monthlyUsd))} a month)`;
+  const tiles = [
+    { lab: 'You actually paid', big: usd(S.paid), ds: [planWords, `OpenRouter: <b>${esc(usd(S.openrouter))}</b> (billed on your key)`] },
+    { lab: "Claude's work at pay-as-you-go prices", big: usd(S.claude), ds: [S.leverage !== null ? `<b class="good">${esc(S.leverage >= 10 ? Math.round(S.leverage) : S.leverage.toFixed(1))}×</b> your plan's share for the same hours.` : 'Set your plan price to compare.', 'What the same work would cost on the API.'] },
+    { lab: 'Paid per request', big: S.perRequest === null ? '—' : usd(S.perRequest), ds: [`${esc(plural(S.prompts, 'request'))}, <b>${esc(n0(S.landed))} of ${esc(n0(S.known))}</b> landed.`, `Typical request: ${esc(durText(S.typicalTime))}.`] },
+    { lab: 'OpenRouter credit left', big: cr && cr.credit !== null ? usd(cr.credit) : 'not checked', warn: crLow, ds: cr && cr.credit !== null ? [`of ${esc(usd(cr.total))} bought.`, cr.daysLeft !== null ? `<b class="${crLow ? 'warn' : ''}">${esc(daysWords(cr.daysLeft))}</b> at the recent rate.` : 'No spend to measure a rate yet.'] : ['Connect your OpenRouter key to see it.'] },
+  ];
+  $('rk-paid').innerHTML = tiles.map((t) => `<div class="tile${t.warn ? ' warn' : ''}"><div class="lab">${esc(t.lab)}</div><div class="big">${esc(t.big)}</div>${t.ds.map((d) => `<div class="ds">${d}</div>`).join('')}</div>`).join('');
+  $('rk-paid-note').textContent = `${words.cur.charAt(0).toUpperCase() + words.cur.slice(1)}, ${V.h === 'all' ? 'all machines' : V.h === 'cloud' ? 'cloud only' : 'your PC only'}. The plan counts only for the hours with data${S.partial ? ` (collection began ${shortTime(S.coveredFrom)})` : ''}; OpenRouter covers your whole account.`;
+
+  // 2. Kinds of request, then the top models chart and leaderboard for the chosen one.
+  const T = topByTask(cur, tcur);
+  const unlabelled = prompts.filter((r) => !r.cat).length;
+  const cats = T.tasks.filter((t) => t.requests > 0);
+  $('rk-cats').innerHTML = `<button data-v="" aria-pressed="${!V.cat}">All requests<span class="c">${esc(n0(prompts.length))}</span></button>` +
+    cats.map((t) => `<button data-v="${esc(t.category)}" aria-pressed="${V.cat === t.category}">${esc(t.label)}<span class="c">${esc(n0(t.requests))}</span></button>`).join('') +
+    (V.cat && !cats.some((t) => t.category === V.cat) ? `<button data-v="${esc(V.cat)}" aria-pressed="true">${esc(categoryLabel(V.cat))}<span class="c">0</span></button>` : '');
+  const notice = $('rk-notice');
+  notice.hidden = !unlabelled;
+  if (unlabelled) notice.innerHTML = `${INFO_ICON}<span>${esc(n0(unlabelled))} of ${esc(plural(prompts.length, 'request'))} in this period ${unlabelled === 1 ? 'has' : 'have'} no kind recorded, so ${unlabelled === 1 ? "it isn't" : "they aren't"} in any category below. Only the category label is read (like "fix" or "research"), never what you typed.</span>`;
+
+  const metric = V.sh === 'tokens' ? 'tokens' : V.sh === 'calls' ? 'calls' : 'spend';
+  for (const b of document.querySelectorAll('#rk-show button')) b.setAttribute('aria-pressed', String(b.dataset.v === V.sh));
+  const base = V.cat ? { task: [V.cat] } : {};
+  const G = groupRows(IX, { from: P.from, to: P.to, host: V.h, grain, dims: ['model'], filters: drillFilters(metric, base), metric });
+  const res = { ...G, groups: G.groups.filter((g) => g.value > 0) };
+  const series = seriesFrom(res, MODEL_COLORS.length).map((sr) => ({ ...sr, label: seriesLabel(['model'], sr), color: sr.other ? OTHER_COLOR : colorOf(keyOfDim(sr.keys[0])) }));
+  $('rk-top-note').textContent = `${metricById(metric).label}, ${GRAIN_WORDS[grain]}${V.cat ? `, for ${categoryLabel(V.cat).toLowerCase()} requests` : ''}. Claude at pay-as-you-go prices; router models at what OpenRouter billed.`;
+  chartBlock(['rk-chart', 'rk-legend', 'rk-pivot'], { res, series, kind: 'bar', M: metricById(metric), dims: ['model'], base, from: P.from, to: P.to, empty: V.cat ? 'No model calls for this kind of request in this period.' : 'No model calls in this period.' });
+
+  const stats = modelStats(cur, tcur, { category: V.cat });
+  const board = leaderboard(stats, V.sh);
+  const valText = (s) => (V.sh === 'tokens' ? tokText(s.value) : V.sh === 'calls' ? n0(s.value) : usd(s.value));
+  $('rk-board').innerHTML = board.length
+    ? `<div class="bh"><span>#</span><span>Model</span><span style="text-align:right">${esc(V.sh === 'tokens' ? 'Tokens' : V.sh === 'calls' ? 'Calls' : 'Spend')}</span><span style="text-align:right">Share</span></div>` +
+      board.map((s) => `<div class="br" role="button" tabindex="0" data-model="${esc(s.key)}" data-tip="${esc(`${s.name}\n${usd(s.spend)} · ${n0(s.calls)} calls · ${tokText(s.tokens)} tokens\nClick to see these calls`)}"><span class="rk">${s.rank}</span><span class="nm"><b>${swatch(s.key)}${esc(s.name)}</b><span>${viaWords(s)} · ${esc(plural(s.calls, 'call'))} · ${esc(tokText(s.tokens))} tokens</span></span><span class="v">${esc(valText(s))}</span><span class="sh">${esc(pctOf(s.share))}</span></div>`).join('') +
+      '<p class="note" style="margin-top:10px">Ranked by what the chart shows. Click a model to see its calls.</p>'
+    : '<p class="empty">No models in this period.</p>';
+
+  // 3. Top models by task.
+  $('rk-tasks').innerHTML = T.tasks.length
+    ? T.tasks.map((t) => {
+        const rows = [...t.models.ranked.slice(0, 3).map((m) => `<span class="r">${m.rank}</span><span>${esc(m.name)}</span><span class="x">${esc(n0(m.landed))} of ${esc(n0(m.known))} ${m.via === 'openrouter' ? 'answered' : 'landed'}</span>`),
+          ...t.models.unranked.slice(0, Math.max(0, 3 - t.models.ranked.length)).map((m) => `<span class="r">–</span><span>${esc(m.name)}</span><span class="x">too few (${esc(n0(m.known))})</span>`)];
+        return `<button class="task" data-cat="${esc(t.category)}" aria-pressed="${V.cat === t.category}"><span class="th"><b>${esc(t.label)}</b><span>${esc([t.requests ? plural(t.requests, 'request') : '', t.routed ? plural(t.routed, 'routed call') : ''].filter(Boolean).join(' · '))}</span></span>${rows.length ? rows.map((r, i) => `<span class="tm${r.includes('too few') ? ' thin' : ''}">${r}</span>`).join('') : '<span class="tm thin"><span></span><span>No outcomes yet</span><span></span></span>'}</button>`;
+      }).join('')
+    : `<p class="empty">No request in this period has its kind recorded yet.</p>`;
+
+  // 4. Performance ranking.
+  const sel = $('rk-by');
+  if (!sel.options.length) sel.innerHTML = RANK_MEASURES.map((m) => `<option value="${m.id}">${esc(m.label)}</option>`).join('');
+  sel.value = V.rk;
+  const K = rankModels(stats, V.rk);
+  const M = K.measure;
+  const all = [...K.ranked, ...K.unranked];
+  const max = Math.max(0, ...K.ranked.map((r) => r.value ?? 0)) || 1;
+  $('rk-perf-note').textContent = `Every model, best first, by ${M.label.toLowerCase()}${M.better === 'low' ? ' (lower is better)' : ''}${V.cat ? `, for ${categoryLabel(V.cat).toLowerCase()} requests` : ''}. Claude models are judged on whole requests, router models on single prompts.${M.judged ? ' Fewer than 10 is too few to judge.' : ''}`;
+  const nWord = (r) => (V.rk === 'landed' || V.rk === 'cost' ? (r.via === 'openrouter' ? 'call' : 'request') : V.rk === 'failures' ? (r.via === 'openrouter' ? 'call' : 'tool call') : V.rk === 'speed' ? (r.via === 'openrouter' ? 'call' : 'request') : 'call');
+  $('rk-perf').innerHTML = all.length
+    ? K.ranked.map((r) => `<div class="pr" role="button" tabindex="0" data-model="${esc(r.key)}"><span class="r">${r.rank}</span><span class="n">${esc(r.name)}</span><span class="track"><span class="fill" style="width:${((r.value / max) * 100).toFixed(1)}%;background:${colorOf(r.key)}"></span></span><span class="x">${esc(measureText(V.rk, r.value))} · ${esc(plural(r.n, nWord(r)))}</span></div>`).join('') +
+      (K.unranked.length ? `<div class="sep">Not ranked</div>` + K.unranked.map((r) => `<div class="pr thin" role="button" tabindex="0" data-model="${esc(r.key)}"><span class="r">–</span><span class="n">${esc(r.name)}</span><span class="track"></span><span class="x">${r.value === null ? 'no data for this' : `too few to judge (${esc(plural(r.n, nWord(r)))})`}</span></div>`).join('') : '')
+    : '<p class="empty">No models in this period.</p>';
+
+  // 5. Efficiency.
+  const E = efficiency({ rows: DATA.rows, cur, tcur, from: P.from, to: P.to, rates: DATA.rates ?? {} });
+  const J = E.jev, Rt = E.router, Q = E.jq;
+  const pill = (thin, ok) => `<span class="pill${ok ? ' good' : ''}">${thin ? 'too few to judge' : ok ? 'saving' : 'judged'}</span>`;
+  const jevWho = J.tiers.length === 1 ? `all made by ${J.tiers[0].label === 'Jev' ? 'Jev itself' : J.tiers[0].label.toLowerCase()}` : J.tiers.map((t) => `${n0(t.n)} by ${t.label === 'Jev' ? 'Jev' : t.label.toLowerCase()}`).join(', ');
+  $('rk-eff').innerHTML = [
+    `<div class="effc"><div class="eh"><b>Jev</b>${J.decisions ? pill(J.thin) : '<span class="pill">no decisions</span>'}</div>` +
+      (J.decisions ? `<p>${esc(plural(J.decisions, 'decision'))}, ${esc(jevWho)}. It picked a skill ${esc(plural(J.picked.n, 'time'))}${J.picked.misses ? `; ${esc(n0(J.picked.misses))} of those ${J.picked.misses === 1 ? 'was' : 'were'} flagged wrong` : ''}.</p>` +
+        `<dl><dt>Landed, with a pick</dt><dd>${esc(J.picked.known ? `${n0(J.picked.landed)} of ${n0(J.picked.known)}` : '—')}</dd><dt>Landed, no pick</dt><dd>${esc(J.none.known ? `${n0(J.none.landed)} of ${n0(J.none.known)}` : '—')}</dd>` +
+        (J.unattributed !== null ? `<dt>OpenRouter spend not tied to a routed call</dt><dd>${esc(usd(J.unattributed))}</dd><dt>That per decision, if it's all Jev</dt><dd>${esc(J.perDecision === null ? '—' : 'about ' + usd(J.perDecision))}</dd>` : '') + '</dl>'
+        : '<p>Jev made no decisions in this period.</p>') + '</div>',
+    `<div class="effc"><div class="eh"><b>Model router</b>${Rt.calls ? pill(Rt.thin, !Rt.thin && Rt.saved > 0) : '<span class="pill">no calls</span>'}</div>` +
+      (Rt.calls ? `<p>${esc(plural(Rt.calls, 'prompt'))} sent to other models instead of Claude.</p><dl><dt>Billed by OpenRouter</dt><dd>${esc(usd(Rt.billed))}</dd>` +
+        (Rt.asClaude !== null ? `<dt>Same tokens on ${esc(modelName(Rt.reference))}, pay-as-you-go</dt><dd>${esc(usd(Rt.asClaude))}</dd><dt>Difference</dt><dd class="${Rt.saved > 0 ? 'good' : ''}">${esc(Rt.saved >= 0 ? `${usd(Rt.saved)} less` : `${usd(-Rt.saved)} more`)}</dd>` : '') +
+        `<dt>Answered without an error or backup</dt><dd>${esc(`${n0(Rt.answered)} of ${n0(Rt.calls)}`)}</dd></dl>`
+        : '<p>The model router sent nothing to OpenRouter in this period.</p>') + '</div>',
+    `<div class="effc${Q.tracked ? '' : ' off'}"><div class="eh"><b>JQ</b>${Q.tracked ? (Q.decisions ? pill(Q.thin) : '<span class="pill">no calls</span>') : '<span class="pill">not tracked yet</span>'}</div>` +
+      (Q.tracked
+        ? `<p>${esc(plural(Q.decisions, 'judgement call'))} logged in this period.</p><dl><dt>Kept</dt><dd>${esc(n0(Q.kept))}</dd><dt>Overruled</dt><dd>${esc(n0(Q.overruled))}</dd><dt>Asked instead</dt><dd>${esc(n0(Q.asked))}</dd><dt>No outcome yet</dt><dd>${esc(n0(Q.open))}</dd>` +
+          (Q.keptRate !== null ? `<dt>Kept, of those judged</dt><dd>${esc(pct(Q.keptRate))}</dd><dt>How sure it said it was</dt><dd>${esc(pct(Q.sureness))}</dd>` : '') + '</dl>'
+        : '<p>How often judgement calls were kept or overruled. The collector now sends them; they show here after the next run on each machine.</p>') + '</div>',
+  ].join('');
+}
+
+function compareTab(C) {
+  const { P, R, grain } = C;
+  const stats = modelStats(R.cur, R.tcur);
+  const known = new Map(stats.map((s) => [s.key, s]));
+  const chosen = (V.cm.length ? V.cm.filter((k) => known.has(k)) : stats.slice(0, 3).map((s) => s.key)).slice(0, 5);
+  const list = chosen.map((k) => known.get(k));
+  const others = stats.filter((s) => !chosen.includes(s.key));
+  $('cm-note').textContent = stats.length ? `Pick up to 5 models to see side by side${chosen.length && !V.cm.length ? '; showing the top ' + chosen.length + ' by spend' : ''}.` : '';
+  $('cm-pick').innerHTML = list.map((s) => `<span class="cm-chip">${swatch(s.key)}${esc(s.name)}<button data-rm="${esc(s.key)}" aria-label="Remove ${esc(s.name)}">×</button></span>`).join('') +
+    (others.length && chosen.length < 5 ? `<select id="cm-add" aria-label="Add a model"><option value="">+ Add model</option>${others.map((s) => `<option value="${esc(s.key)}">${esc(s.name)}${s.via === 'openrouter' ? ' (router)' : ''}</option>`).join('')}</select>` : '');
+  const dash = '<span class="muted">—</span>';
+  $('cm-table').innerHTML = list.length ? table(['Model', 'Requests led', 'Model calls', 'Spend', 'Typical cost per request', 'Landed', 'Typical time', 'Cache hits', 'Failures'], list.map((s) => ({
+    go: { f: { model: [dimOfKey(s.key)], type: ['model', 'router'] } },
+    cells: [`${swatch(s.key)} ${esc(s.name)}${s.via === 'openrouter' ? '<span class="tag">router</span>' : ''}`,
+      s.requests ? esc(n0(s.requests)) : dash, esc(n0(s.calls)), esc(usd(s.spend)), s.costPerRequest === null ? dash : esc(usd(s.costPerRequest)),
+      s.known ? esc(`${n0(s.landed)} of ${n0(s.known)}${s.via === 'openrouter' ? ' answered' : ''}`) : dash,
+      s.time === null ? dash : esc(durText(s.time)), s.cacheRate === null || (s.via === 'openrouter' && !s.cacheRate) ? dash : esc(pct(s.cacheRate)),
+      s.failJudged ? esc(`${n0(s.via === 'openrouter' ? Math.round(s.failRate * s.failJudged) : s.toolFails)} of ${n0(s.failJudged)} (${pct(s.failRate)})`) : dash],
+  })), { empty: 'No models in this period.' }) : '<p class="empty">No models in this period.</p>';
+  const mini = (title, f, fmt) => {
+    const vals = list.map((s) => ({ s, v: f(s) }));
+    const top = Math.max(0, ...vals.map((x) => x.v ?? 0)) || 1;
+    return `<div class="mini"><h3>${esc(title)}</h3>${vals.map(({ s, v }) => v === null || v === undefined
+      ? `<div class="mr na"><span style="color:var(--ink)">${esc(s.name)}</span><span></span><span class="x">none</span></div>`
+      : `<div class="mr" data-tip="${esc(`${s.name}: ${fmt(v)}`)}"><span>${esc(s.name)}</span><span class="bar" style="width:${Math.max(1, (v / top) * 100).toFixed(1)}%;background:${colorOf(s.key)}"></span><span class="x">${esc(fmt(v))}</span></div>`).join('')}</div>`;
+  };
+  $('cm-minis').innerHTML = list.length ? [
+    mini('Spend', (s) => s.spend, usd),
+    mini('Landed', (s) => s.landRate, pct),
+    mini('Typical time', (s) => s.time, durText),
+    mini('Cache hits', (s) => (s.via === 'openrouter' && !s.cacheRate ? null : s.cacheRate), pct),
+  ].join('') : '';
+  $('cm-grain').textContent = GRAIN_WORDS[grain];
+  const base = { model: chosen.map(dimOfKey) };
+  const G = groupRows(IX, { from: P.from, to: P.to, host: V.h, grain, dims: ['model'], filters: drillFilters('spend', base), metric: 'spend' });
+  const res = { ...G, groups: G.groups.filter((g) => g.value > 0) };
+  const series = seriesFrom(res, 5).map((sr) => ({ ...sr, label: seriesLabel(['model'], sr), color: sr.other ? OTHER_COLOR : colorOf(keyOfDim(sr.keys[0])) }));
+  chartBlock(['cm-chart', 'cm-legend', 'cm-pivot'], { res, series, kind: 'bar', M: metricById('spend'), dims: ['model'], base, from: P.from, to: P.to, empty: 'No priced calls for these models in this period.' });
+}
+
 // ---------- render ----------
 
 function renderAll() {
   const C = context();
   const { stale, builtAgo } = header(C);
   for (const t of TABS) $('tab-' + t).hidden = t !== V.tab;
-  const fn = { overview, explore, logs, jev: jevTab, router: routerTab, health: (c) => healthTab(c, stale, builtAgo) }[V.tab];
+  const fn = { rankings: rankingsTab, compare: compareTab, overview, explore, logs, jev: jevTab, router: routerTab, health: (c) => healthTab(c, stale, builtAgo) }[V.tab];
   fn(C);
 }
 
@@ -1073,6 +1376,24 @@ for (const id of ['c-from', 'c-to']) $(id).addEventListener('change', () => {
   if (a && b && a <= b) setView({ p: 'custom', from: a, to: b, lf: null, lt: null, pg: 0 });
 });
 $('host').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setView({ h: b.dataset.v, pg: 0 }); });
+$('rk-show').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setView({ sh: b.dataset.v }); });
+$('rk-cats').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setView({ cat: b.dataset.v }); });
+$('rk-tasks').addEventListener('click', (e) => { const b = e.target.closest('[data-cat]'); if (b) setView({ cat: V.cat === b.dataset.cat ? '' : b.dataset.cat }); });
+$('rk-by').addEventListener('change', (e) => setView({ rk: e.target.value }));
+for (const id of ['rk-board', 'rk-perf']) {
+  $(id).addEventListener('click', (e) => { const r = e.target.closest('[data-model]'); if (r) modelLogs(r.dataset.model); });
+  $(id).addEventListener('keydown', (e) => { const r = e.target.closest('[data-model]'); if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); modelLogs(r.dataset.model); } });
+}
+$('cm-pick').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rm]'); if (!b) return;
+  const C = context(), cur = V.cm.length ? V.cm : modelStats(C.R.cur, C.R.tcur).slice(0, 3).map((s) => s.key);
+  setView({ cm: cur.filter((k) => k !== b.dataset.rm) });
+});
+$('cm-pick').addEventListener('change', (e) => {
+  if (e.target.id !== 'cm-add' || !e.target.value) return;
+  const C = context(), cur = V.cm.length ? V.cm : modelStats(C.R.cur, C.R.tcur).slice(0, 3).map((s) => s.key);
+  setView({ cm: [...cur, e.target.value].slice(0, 5) });
+});
 $('ex-m').addEventListener('change', (e) => { exLimit = 50; setView({ m: e.target.value }); });
 $('ex-g1').addEventListener('change', (e) => { exLimit = 50; setView({ g: e.target.value ? [e.target.value, ...V.g.slice(1).filter((x) => x !== e.target.value)] : [] }); });
 $('ex-g2').addEventListener('change', (e) => { exLimit = 50; setView({ g: [V.g[0], e.target.value].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i) }); });

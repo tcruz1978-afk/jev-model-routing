@@ -18,6 +18,7 @@ reads what the session's files gained since the last run:
 | `~/.claude/jev-log/<session>.jsonl` (jev-skill-suggestion) | `jev.decision`, `jev.skill_load` |
 | `~/.claude/jev-log/router.jsonl` (model-router) | `router.call` (model asked / answered, tokens, OpenRouter cost) |
 | OpenRouter `/key` and `/credits`, hourly | `openrouter.key` (credit left, key limit, free requests) |
+| JQ log (`JQ_LOG_FILE`, the shared project folder, or `~/.jq/decisions.jsonl`) | `jq.decision` (tool, answer, stated confidence), `jq.outcome` (kept, overruled, asked); never the question |
 
 Prompt text, tool inputs and outputs are never recorded. Costs for Claude
 models are what the tokens cost at API list prices (`scripts/prices.json`),
