@@ -730,7 +730,9 @@ const sumOf = (list, f) => list.reduce((a, r) => a + (isNum(f(r)) ? f(r) : 0), 0
  *     the skill's text into the chat (d.injected), or the last skill loaded
  *     with the Skill tool (not refused) earlier in the same turn. A helper
  *     agent inherits the main chat's skill unless it loaded its own. No
- *     skill leaves `as` unset: the page shows it as "no skill".
+ *     skill leaves `as` unset: the page shows it as "no skill". Prompts,
+ *     tool calls and routed calls get `as` the same way, so the explorer can
+ *     split any of them by skill; only model calls carry cost to a skill.
  *   - each tool call gets `xc`, its share of the cost of the Claude reply
  *     that asked for it (same chat and agent, within 2 s; a reply that asked
  *     for several tools is split evenly). A tool no reply matches has none.
@@ -754,9 +756,12 @@ export function attribute(rows) {
         const jev = picks.filter((d) => Math.abs(d.t - r.t) <= TARGETS.matchMs).sort((a, b) => Math.abs(a.t - r.t) - Math.abs(b.t - r.t))[0]
         const start = r.sk ?? jev?.sk ?? null
         if (start) active.set('main', start)
+        if (start) r.as = start
+        else delete r.as
       } else if (r.k === 'tool' && r.tl === 'Skill' && r.sk && r.ok !== false) {
         active.set(r.a || 'main', r.sk)
-      } else if (r.k === 'api') {
+        r.as = r.sk
+      } else if (r.k === 'api' || r.k === 'tool' || r.k === 'router.call') {
         const skill = active.get(r.a || 'main') ?? active.get('main')
         if (skill) r.as = skill
         else delete r.as
@@ -1287,6 +1292,28 @@ export function feedType(r) {
   return null
 }
 
+/** One activity row in words: { t, h, type, name, model, tokensIn, tokensOut, cost, costKind, ms, ok }. `ft` is its feedType. */
+export function feedEntry(r, ft = feedType(r)) {
+  let name
+  if (ft === 'model') name = !r.a || r.a === 'main' ? (r.as ? `Main chat · ${r.as}` : 'Main chat') : `Subagent: ${String(r.a).replace(/^subagent:/, '')}${r.as ? ` · ${r.as}` : ''}`
+  else if (ft === 'router') name = r.d?.category ?? 'routed call'
+  else if (ft === 'jev') name = r.sk ? `picked ${r.sk}` : 'picked nothing'
+  else if (ft === 'subagent') name = r.st ?? 'general-purpose'
+  else if (ft === 'connector') name = `${r.mc} · ${String(r.tl).split('__').slice(2).join('__')}`
+  else name = r.tl === 'Skill' ? `Skill: ${r.sk ?? 'unnamed'}` : r.tl
+  const ms = ft === 'router' ? r.d?.ms : ft === 'jev' ? (isNum(r.d?.wideMs) || isNum(r.d?.rerankMs) ? (r.d?.wideMs ?? 0) + (r.d?.rerankMs ?? 0) : null) : r.ms
+  return {
+    t: r.t, h: r.h, type: ft, name,
+    model: ft === 'jev' ? (JEV_TIERS.find((x) => x.id === tierOf(r.d?.decidedBy)).label) : r.m ?? null,
+    tokensIn: isNum(r.i) ? r.i : null, tokensOut: isNum(r.o) ? r.o : null,
+    cost: ft === 'model' || ft === 'router' ? (isNum(r.c) ? r.c : null) : isNum(r.xc) ? r.xc : null,
+    costKind: ft === 'model' || ft === 'router' ? 'own' : 'reply',
+    ms: isNum(ms) ? ms : null,
+    // A Jev decision that picked nothing did not fail; model calls that were logged answered.
+    ok: ft === 'jev' ? null : r.ok === false ? false : r.ok === true ? true : ft === 'model' ? true : null,
+  }
+}
+
 /** The newest activity first: [{ t, h, type, name, model, tokensIn, tokensOut, cost, ms, ok }]. */
 export function activityFeed(cur, { type = 'all', limit = 100 } = {}) {
   const out = []
@@ -1294,24 +1321,7 @@ export function activityFeed(cur, { type = 'all', limit = 100 } = {}) {
     const r = cur[i]
     const ft = feedType(r)
     if (!ft || (type !== 'all' && ft !== type)) continue
-    let name
-    if (ft === 'model') name = !r.a || r.a === 'main' ? (r.as ? `Main chat · ${r.as}` : 'Main chat') : `Subagent: ${r.a.slice(9)}${r.as ? ` · ${r.as}` : ''}`
-    else if (ft === 'router') name = r.d?.category ?? 'routed call'
-    else if (ft === 'jev') name = r.sk ? `picked ${r.sk}` : 'picked nothing'
-    else if (ft === 'subagent') name = r.st ?? 'general-purpose'
-    else if (ft === 'connector') name = `${r.mc} · ${String(r.tl).split('__').slice(2).join('__')}`
-    else name = r.tl === 'Skill' ? `Skill: ${r.sk ?? 'unnamed'}` : r.tl
-    const ms = ft === 'router' ? r.d?.ms : ft === 'jev' ? (isNum(r.d?.wideMs) || isNum(r.d?.rerankMs) ? (r.d?.wideMs ?? 0) + (r.d?.rerankMs ?? 0) : null) : r.ms
-    out.push({
-      t: r.t, h: r.h, type: ft, name,
-      model: ft === 'jev' ? (JEV_TIERS.find((x) => x.id === tierOf(r.d?.decidedBy)).label) : r.m ?? null,
-      tokensIn: isNum(r.i) ? r.i : null, tokensOut: isNum(r.o) ? r.o : null,
-      cost: ft === 'model' || ft === 'router' ? (isNum(r.c) ? r.c : null) : isNum(r.xc) ? r.xc : null,
-      costKind: ft === 'model' || ft === 'router' ? 'own' : 'reply',
-      ms: isNum(ms) ? ms : null,
-      // A Jev decision that picked nothing did not fail; model calls that were logged answered.
-      ok: ft === 'jev' ? null : r.ok === false ? false : r.ok === true ? true : ft === 'model' ? true : null,
-    })
+    out.push(feedEntry(r, ft))
   }
   return out
 }

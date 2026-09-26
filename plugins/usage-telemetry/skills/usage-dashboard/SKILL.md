@@ -1,6 +1,6 @@
 ---
 name: usage-dashboard
-description: Refresh or show the Claude usage dashboard — what the models did and what it cost (Claude and OpenRouter spend, cost by model per day, where the work went by skill, connector and subagent, which model served what, Jev paid against free, the model router, top chats, recent activity), with a health strip of seven checks at the bottom. Use when the user asks to see, refresh, update or check the dashboard, usage, spend, what the models are doing, or whether skills, Jev or the model router are working.
+description: Refresh or show the Claude usage dashboard ("Claude Usage Monitor") — a tabbed master dashboard like OpenRouter's Activity page. Overview (spend, requests, model calls, tokens, cache hit rate, cost per million tokens, tool failures, OpenRouter credit, each with a sparkline and change; spend by model; top models, skills, connectors, subagents, chats), Explore (any metric split by up to two dimensions over time or ranked, saved views), Logs (every event, filterable, CSV), Jev paid against free, the model router, and Health (seven checks). Use when the user asks to see, refresh, update or check the dashboard, usage, spend, what the models are doing, or whether skills, Jev or the model router are working.
 ---
 
 # Usage dashboard
@@ -58,37 +58,39 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
    "Claude Usage Monitor"; read it first, as the tool requires) so the link
    stays the same. Someone else's session publishes a new one instead.
    Replace the page only; the design, CSS and markup stay as they are.
+   The first publish after this redesign replaces the old single-page layout.
 
 ## What the page computes
 
-All arithmetic is in `scripts/checks.mjs`, and the health strip's words in
-`scripts/present.mjs`; both are inlined into the page and tested by
-`tests/*.test.mjs`.
+All arithmetic is in `scripts/checks.mjs` and `scripts/explore.mjs`, and
+the health words in `scripts/present.mjs`; all three are inlined into the
+page and tested by `tests/*.test.mjs`.
 
-The page leads with what the models did and what it cost, then health.
-Top to bottom, for the chosen period and machines:
+The page has six tabs (the URL hash keeps the tab and every choice); the
+period (24h, 7d, 30d, 90d, custom from–to) and machines sit in the header
+with a health badge:
 
-1. Headline numbers with the change on the previous period (once it is
-   collected): Claude work at pay-as-you-go prices, OpenRouter spend (from
-   the key's running total, account-wide), your requests, model calls, tool
-   calls with failures, OpenRouter credit left and how long it lasts at the
-   recent spend rate.
-2. Cost by model per day (per hour for 24 hours), stacked bars.
-3. Where the work went: by skill, connector or plugin, and subagent (uses,
-   cost, failures, typical time). Model calls are charged to the skill
-   active in their turn; the rest show as "no skill".
-4. Model × work grid: which model served which skill or router task.
-5. Jev: paid against free by who decided (Jev and paid backups against the
-   free backup and Claude Code's own classifier), with misroutes, landed
-   rate and typical time per tier ("too few to judge" under 10), picks per
-   skill, how sure it was, and the benchmark from
-   `~/.claude/usage-telemetry/jev-tiers.json` (`--tiers FILE`) when it
-   exists.
-6. The model router by task kind, and model asked for against model that
-   answered.
-7. Top 10 chats by cost; 8. the newest 100 things the models did.
-9. The health strip: seven checks as pills, "What to do" beside any a person
-   or Claude has to act on.
+1. Overview: metric cards with sparklines and the change on the previous
+   period (Claude work, OpenRouter spend, requests, model calls, tokens with
+   the fresh / cache / out split, cache hit rate, blended cost per million
+   tokens, tool failures, OpenRouter credit and how long it lasts), spend by
+   model over time, and top models, skills, connectors, subagents, chats.
+2. Explore: one metric split by up to two dimensions (`DIMS` in
+   `scripts/explore.mjs`), by hour, day or week or ranked, as bars, lines or
+   dots; filters, saved views (localStorage) and "Copy link".
+3. Logs: every event newest first, filter chips, search, row details, CSV.
+4. Jev: decisions over time by tier, paid against free, picks, confidence,
+   and the benchmark from `~/.claude/usage-telemetry/jev-tiers.json`
+   (`--tiers FILE`) when it exists.
+5. Router: by task kind, asked-for against answered, spend and calls over time.
+6. Health: the seven checks full size with "What to do", and failing tools.
+
+Any bar, slice, point, legend entry or table row opens Logs filtered to the
+events behind it.
+
+The page carries every row inlined (about 170 bytes each): past roughly
+90,000 rows it passes the Artifact tool's 16 MB page limit, so build with a
+shorter `--days` then.
 
 Coverage: the window line prints "Data since <first event>". A range longer
 than the data says how much it holds ("only 72 min of data") and its button
@@ -96,7 +98,7 @@ is dotted-underlined. A previous window that starts before the first event
 is "not tracked (collection began …)", never "none", in the checks and in
 every table.
 
-The health strip ("Is anything broken?") holds seven checks, each Pass, Needs
+The Health tab ("Is anything broken?") holds seven checks, each Pass, Needs
 attention, Not tracked (no data, never green), Too few to judge (a rate over
 fewer than 10) or Partial (its data stopped early). The owner's targets,
 approved 2026-09-26, are the only source of colour:
