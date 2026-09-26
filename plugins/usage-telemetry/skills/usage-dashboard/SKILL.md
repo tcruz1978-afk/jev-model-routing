@@ -58,9 +58,13 @@ Scripts are in this skill's plugin: `../../scripts/` from this file.
    "Claude Usage Monitor"; read it first, as the tool requires) so the link
    stays the same. Someone else's session publishes a new one instead.
    Replace the page only; the design, CSS and markup stay as they are.
-   Pass `capabilities: {"mcp": {"servers": [{"server": "Supabase", "tools": ["execute_sql"]}]}}`
-   so the page can read live data (see below); a redeploy that omits
-   `capabilities` keeps what the page already has.
+   Load the `artifact-capabilities` skill first, then pass
+   `capabilities: {"mcp": {"servers": [{"server": "Supabase", "tools": ["execute_sql"]}]}, "downloads": true}`
+   on every publish: `mcp` lets the page read live data (see below) and
+   `downloads` lets the Logs tab's "Download CSV" save a file (the viewer
+   blocks plain download links). A non-empty `capabilities` replaces the
+   whole stored set, so always pass both; omitting `capabilities` keeps
+   what the page already has, and `{}` removes them.
 
 ## Live data
 
@@ -98,7 +102,8 @@ with a health badge:
 2. Explore: one metric split by up to two dimensions (`DIMS` in
    `scripts/explore.mjs`), by hour, day or week or ranked, as bars, lines or
    dots; filters, saved views (localStorage) and "Copy link".
-3. Logs: every event newest first, filter chips, search, row details, CSV.
+3. Logs: every event newest first, filter chips, search, row details, CSV
+   (saved through the `downloads` capability; the viewer confirms the save).
 4. Jev: decisions over time by tier, paid against free, picks, confidence,
    and the benchmark from `~/.claude/usage-telemetry/jev-tiers.json`
    (`--tiers FILE`) when it exists.

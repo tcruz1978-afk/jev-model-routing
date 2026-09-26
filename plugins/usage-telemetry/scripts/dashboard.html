@@ -319,6 +319,7 @@ ul.plain { margin: 0; padding-left: 18px; font-size: 13px; }
       <div class="lg-bar">
         <input type="search" id="lg-q" placeholder="Search tools, skills, connectors, models…" aria-label="Search names">
         <button class="btn" id="lg-csv">Download CSV</button>
+        <span class="msg" id="lg-csv-msg" role="status"></span>
       </div>
       <p class="note" id="lg-note" style="margin-top:8px"></p>
       <div class="tbox" id="lg-table"></div>
@@ -1106,16 +1107,26 @@ $('view-copy').addEventListener('click', async () => {
 });
 let qTimer = null;
 $('lg-q').addEventListener('input', (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => setView({ q: e.target.value.trim(), pg: 0 }), 250); });
-$('lg-csv').addEventListener('click', () => {
+// The viewer blocks plain download links, so the file goes through the
+// `downloads` capability, which asks the viewer to confirm the save.
+const csvMsg = (t) => { $('lg-csv-msg').textContent = t; };
+$('lg-csv').addEventListener('click', async () => {
   if (!LOGS) return;
+  const filename = `claude-usage-${new Date(END).toISOString().slice(0, 10)}-${n0(LOGS.idx.length).replace(/,/g, '')}-events.csv`;
+  const data = logsCsv(IX, LOGS.idx);
+  const downloads = window.claude?.use ? await window.claude.use('downloads').catch(() => null) : null;
+  if (!downloads) { csvMsg('Downloads are not available here. Open the page inside Claude to save the CSV.'); return; }
+  csvMsg('');
   try {
-    const blob = new Blob([logsCsv(IX, LOGS.idx)], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `claude-usage-${new Date(END).toISOString().slice(0, 10)}-${n0(LOGS.idx.length).replace(/,/g, '')}-events.csv`;
-    document.body.append(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  } catch {}
+    await downloads.save({ filename, data });
+    csvMsg(`Saved ${filename}.`);
+  } catch (err) {
+    const code = err?.code;
+    if (code === 'declined') csvMsg('Download cancelled.');
+    else if (code === 'rate_limited') csvMsg('A save is already waiting for an answer; try again in a moment.');
+    else if (code === 'too_large') csvMsg('Too many rows to save at once; narrow the filters and try again.');
+    else csvMsg('Downloads are not available here. Open the page inside Claude to save the CSV.');
+  }
 });
 $('lg-table').addEventListener('click', (e) => {
   const tr = e.target.closest('tr.lrow'); if (!tr) return;
