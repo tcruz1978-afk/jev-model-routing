@@ -331,8 +331,23 @@ test('Jev deciding leaves out chats it cannot judge: older Jev, no Jev loaded, a
   assert.equal(c.figure, '100% decided')
   assert.deepEqual(c.stats.left, { old: 12, off: 4, none: 5 })
   assert.ok(c.lines.some((l) => l.startsWith('Not counted: 12 prompts in 1 chat started before Jev kept a log')))
-  assert.ok(c.lines.some((l) => l.includes('where Jev never logged anything')))
+  assert.ok(c.lines.some((l) => l.includes("where Jev wasn't logging yet")))
   assert.ok(c.lines.some((l) => l.includes('"off" group')))
+})
+
+test('Jev deciding: prompts before a chat first logs Jev (a restart onto new code) are not counted as misses', () => {
+  const fix = Date.parse('2026-09-26T14:16:47Z')
+  const at = (m) => fix + m * 60000
+  const rows = []
+  for (let i = 0; i < 13; i++) rows.push({ k: 'prompt', t: at(60 + i * 5), s: 0, h: 'cloud', a: 'main' })
+  rows.push({ k: 'jev.arm', t: at(200), s: 0, h: 'cloud', d: { arm: 'on' } })
+  for (let i = 0; i < 10; i++) {
+    rows.push({ k: 'prompt', t: at(200 + i * 3), s: 0, h: 'cloud', a: 'main' })
+    rows.push({ k: 'jev.decision', t: at(200 + i * 3) + 500, s: 0, h: 'cloud', d: { decidedBy: 'jev' } })
+  }
+  const c = byId(runChecks({ fixes: { skills: fix, jevLog: fix }, rows, generatedAt: at(260), days: 1, since: at(0) }).checks)['jev-deciding']
+  assert.equal(c.figure, '100% decided')
+  assert.equal(c.stats.left.none, 13)
 })
 
 test('Jev picking states the span its decisions cover and goes partial when the log went quiet', () => {
