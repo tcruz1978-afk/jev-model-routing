@@ -100,10 +100,15 @@ The page opens on **Rankings**, laid out like OpenRouter's model rankings
 4. **Performance ranking**: models best first by landed rate, speed, typical
    cost per request, failure rate, cache hits or spend; under 10 is too few
    to judge and goes unranked.
-5. **Is it making the work more efficient?**: Jev (with a pick against
-   without, and OpenRouter spend no routed call explains), the model router
-   (billed against the same tokens at Claude's list price), and JQ (kept,
-   overruled, asked, from the JQ log the collector now sends).
+5. **Contribution**: each part's KPIs and the three together. Jev:
+   coverage (target 95%), accuracy (target 90%), cost as OpenRouter reported
+   it per decision (`costUsd` in the decision log, from this release), and
+   requests with a decision against without (not a fair test until an on/off
+   comparison). Router: offload share, savings against the same tokens at
+   Claude's list price, answered without an error or backup, cost. JQ: kept,
+   overruled, calibration. Together: measured cost, measured savings, net,
+   share of requests touched. OpenRouter spend that neither explains is shown
+   apart and never charged to either.
 
 **Compare models** puts up to 5 models side by side (table, small charts,
 spend over time). Change `plan.json` when the plan changes.

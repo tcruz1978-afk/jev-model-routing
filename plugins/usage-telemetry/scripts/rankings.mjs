@@ -284,3 +284,98 @@ export function leaderboard(stats, show = 'spend', top = 10) {
   const total = stats.reduce((a, s) => a + val(s), 0)
   return stats.map((s) => ({ ...s, value: val(s), share: total ? val(s) / total : null })).sort((a, b) => b.value - a.value || b.calls - a.calls).slice(0, top).map((s, i) => ({ ...s, rank: i + 1 }))
 }
+
+/**
+ * Each part's contribution as KPIs, and the three together. Cost is what was
+ * measured (Jev's decisions as OpenRouter reported them, the router's calls
+ * as billed); OpenRouter spend on the key that neither explains is shown
+ * apart, never charged to either. Savings are the router's, against the same
+ * tokens at Claude's list price; Jev's and JQ's savings need an on/off
+ * comparison, so "with against without" is shown and marked not a fair test.
+ *   jev     coverage (your requests with a decision), accuracy (picks not
+ *           flagged wrong), cost, and requests with a decision against without.
+ *   router  offload (model calls it took off Claude), savings, quality
+ *           (answered without an error or backup), cost.
+ *   jq      kept rate, overrule rate, calibration (how sure it said it was,
+ *           less how often it was kept), cost (logging only: nothing).
+ *   total   measured cost, measured savings, net, share of requests touched.
+ */
+export function contribution({ rows, cur, tcur, from, to, rates = {} }) {
+  const E = efficiency({ rows, cur, tcur, from, to, rates })
+  const prompts = cur.filter(rkPrompt)
+  const decisions = cur.filter((r) => r.k === 'jev.decision')
+  const matched = (t) => decisions.find((d) => d.s === t.s && Math.abs(d.t - t.t) <= TARGETS.matchMs) ?? null
+  const routedTurns = new Set()
+  const turnOf = turnFinder(tcur)
+  for (const r of cur) if (r.k === 'router.call') { const t = turnOf(r); if (t) routedTurns.add(t) }
+  const side = (list) => {
+    const known = list.filter((t) => t.land !== null && t.land !== undefined)
+    return { n: list.length, known: known.length, landed: known.filter((t) => t.land).length, landRate: known.length ? known.filter((t) => t.land).length / known.length : null, cost: median(list.map((t) => t.c)), time: median(list.map((t) => t.dur)) }
+  }
+  const withJev = tcur.filter((t) => matched(t)), withoutJev = tcur.filter((t) => !matched(t))
+  const picks = decisions.filter((d) => d.sk)
+  const priced = decisions.filter((d) => rkNum(d.c))
+  const jevCost = priced.length ? rkSum(priced, (d) => d.c) : null
+  const lastDecision = decisions.length ? Math.max(...decisions.map((d) => d.t)) : null
+  const lastPrompt = prompts.length ? Math.max(...prompts.map((p) => p.t)) : null
+  const jev = {
+    decisions: decisions.length,
+    coverage: prompts.length ? withJev.length / prompts.length : null,
+    covered: withJev.length,
+    requests: prompts.length,
+    accuracy: picks.length ? (picks.length - E.jev.picked.misses) / picks.length : null,
+    picks: picks.length,
+    wrong: E.jev.picked.misses,
+    cost: jevCost,
+    priced: priced.length,
+    quiet: lastDecision !== null && lastPrompt !== null && lastPrompt > lastDecision + TARGETS.matchMs ? { since: lastDecision, prompts: prompts.filter((p) => p.t > lastDecision + TARGETS.matchMs).length } : null,
+    with: side(withJev),
+    without: side(withoutJev),
+  }
+  jev.fair = false
+  jev.thin = jev.with.known < TARGETS.minN || jev.without.known < TARGETS.minN
+
+  const api = cur.filter((r) => r.k === 'api').length
+  const router = {
+    calls: E.router.calls,
+    offload: api + E.router.calls ? E.router.calls / (api + E.router.calls) : null,
+    saved: E.router.saved,
+    asClaude: E.router.asClaude,
+    reference: E.router.reference,
+    quality: E.router.calls ? E.router.answered / E.router.calls : null,
+    answered: E.router.answered,
+    cost: E.router.billed,
+    thin: E.router.thin,
+    with: side([...routedTurns]),
+  }
+
+  const jq = {
+    tracked: E.jq.tracked,
+    decisions: E.jq.decisions,
+    keptRate: E.jq.keptRate,
+    judged: E.jq.kept + E.jq.overruled,
+    overruleRate: E.jq.kept + E.jq.overruled ? E.jq.overruled / (E.jq.kept + E.jq.overruled) : null,
+    calibration: E.jq.sureness !== null && E.jq.keptRate !== null ? E.jq.sureness - E.jq.keptRate : null,
+    cost: 0,
+    thin: E.jq.thin,
+  }
+
+  const or = E.openrouter
+  const explained = (jevCost ?? 0) + (router.cost ?? 0)
+  const unexplained = or.basis === 'router' || !rkNum(or.usd) ? null : Math.max(0, or.usd - explained)
+  const cost = (jevCost ?? 0) + (router.cost ?? 0)
+  const saved = router.saved ?? 0
+  const touched = new Set([...withJev, ...routedTurns])
+  const total = {
+    cost,
+    saved,
+    net: saved - cost,
+    unexplained,
+    touched: touched.size,
+    requests: tcur.length,
+    share: tcur.length ? touched.size / tcur.length : null,
+    jevCostMissing: decisions.length > 0 && priced.length < decisions.length,
+    judged: !jev.thin && !router.thin,
+  }
+  return { jev, router, jq, total }
+}

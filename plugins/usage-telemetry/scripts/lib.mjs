@@ -297,6 +297,7 @@ export function eventFromLog(raw, host) {
       kind: 'jev.decision',
       ...common,
       model: record.model ?? null,
+      cost_usd: Number.isFinite(record.costUsd) ? record.costUsd : null,
       skill: record.pick ?? null,
       ok: record.pick !== null,
       data: {
