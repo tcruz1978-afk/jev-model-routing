@@ -141,7 +141,9 @@ async function main() {
     const events = []
     const promptTexts = {}
 
-    for (const path of jsonlFiles(projectsDir)) {
+    // Main transcripts first, so a subagent can take its session's project.
+    const depth = (p) => p.split(/[\\/]/).length
+    for (const path of jsonlFiles(projectsDir).sort((a, b) => depth(a) - depth(b))) {
       const where = transcriptOf(path, projectsDir)
       if (!where) continue
       const file = (state.files[path] ??= { offset: 0, pending: {} })
@@ -149,7 +151,9 @@ async function main() {
       if (offset < file.offset) file.pending = {}
       file.offset = offset
       if (lines.length === 0 && Object.keys(file.pending).length === 0) continue
-      const ctx = { ...where, host, agentType: where.agentId ? agentTypeOf(path) : null, startCwd: file.startCwd ?? null, promptTexts }
+      // A subagent belongs to its session's project, not to wherever it started.
+      const mainFile = where.agentId ? state.files[join(projectsDir, where.project, `${where.session}.jsonl`)] : null
+      const ctx = { ...where, host, home: env.HOME || homedir(), agentType: where.agentId ? agentTypeOf(path) : null, startCwd: mainFile?.startCwd ?? file.startCwd ?? null, promptTexts }
       events.push(...eventsFromTranscript(lines, ctx, file.pending))
       if (ctx.startCwd) file.startCwd = ctx.startCwd
       const stale = Object.fromEntries(
