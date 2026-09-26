@@ -549,6 +549,39 @@ export function logsCsv(ix, indices) {
   }))
 }
 
+/** The log CSV's file name: the build day and how many events it holds. */
+export const logsCsvName = (end, n) => `claude-usage-${new Date(end).toISOString().slice(0, 10)}-${n}-events.csv`
+
+/**
+ * Hands a file to the viewer through the artifact `downloads` capability
+ * (the viewer's frame blocks a page's own downloads), and says in words what
+ * happened: { text, hide } — hide when saving cannot work in this view.
+ */
+export async function saveFile(downloads, filename, data) {
+  if (!downloads) return { text: "Saving files isn't available here.", hide: true }
+  try {
+    await downloads.save({ filename, data })
+    return { text: 'Saved.', hide: false }
+  } catch (error) {
+    switch (error?.code) {
+      case 'declined':
+        return { text: 'Not saved.', hide: false }
+      case 'rate_limited':
+        return { text: 'A save is already waiting for your answer.', hide: false }
+      case 'too_large':
+        return { text: 'Too many events to save at once. Filter the list down and try again.', hide: false }
+      case 'bad_request':
+      case 'transform_error':
+        return { text: `Couldn't save: ${String(error.message ?? 'the file was not accepted').slice(0, 160)}.`, hide: false }
+      case 'rejected_extension':
+      case 'extension_not_enabled':
+        return { text: "CSV files can't be saved here.", hide: true }
+      default:
+        return { text: "Saving files isn't available here.", hide: true }
+    }
+  }
+}
+
 // ---------- the view in the URL hash ----------
 
 export const TABS = ['overview', 'explore', 'logs', 'jev', 'router', 'health']
