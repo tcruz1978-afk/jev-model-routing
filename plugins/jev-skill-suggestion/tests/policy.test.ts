@@ -691,8 +691,9 @@ test('armOf puts a session in the same group every time, in the shares asked for
   expect(Math.abs(count('off') - 0.2)).toBeLessThan(0.03)
   expect(Math.abs(count('no-router') - 0.2)).toBeLessThan(0.03)
   expect(Math.abs(count('on') - 0.6)).toBeLessThan(0.03)
-  // Off by default: every session is in the full group.
-  expect(count('on', DEFAULT_ARM_SHARES)).toBe(1)
+  // By default 1 session in 10 is held out with neither Jev nor the router.
+  expect(Math.abs(count('off', DEFAULT_ARM_SHARES) - 0.1)).toBeLessThan(0.03)
+  expect(count('no-router', DEFAULT_ARM_SHARES)).toBe(0)
   expect(ids.every((id) => armOf(id, { off: 0, noRouter: 0 }) === 'on')).toBe(true)
   expect(ids.every((id) => armOf(id, { off: 1, noRouter: 0.5 }) === 'off')).toBe(true)
   expect(ids.every((id) => armOf(id, { off: Number.NaN, noRouter: -1 }) === 'on')).toBe(true)
