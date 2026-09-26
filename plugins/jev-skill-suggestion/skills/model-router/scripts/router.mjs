@@ -8,7 +8,9 @@
 // Keys come from the environment (never this file). OPENROUTER_API_KEY alone is
 // enough: OpenRouter serves Jev itself on its System One API. TYPESAFE_API_KEY
 // or AI_GATEWAY_API_KEY, when set, reach Jev directly instead.
-import { readFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const API = 'https://openrouter.ai/api/v1'
@@ -278,7 +280,47 @@ export async function complete(prompt, options = {}) {
     // The model hit max_tokens: the answer is cut short, or empty if thinking used it all.
     truncated: body.choices?.[0]?.finish_reason === 'length',
     usage: body.usage,
+    id: body.id,
   }
+}
+
+/**
+ * One routed call as the usage dashboard reads it: which category and tier,
+ * who decided, what was asked for and what answered, tokens and cost.
+ * Never the prompt's text, only its length.
+ */
+export function callRecord(prompt, opts, result, ms, error, env = process.env) {
+  return {
+    kind: 'router.call',
+    ts: new Date().toISOString(),
+    session: env.CLAUDE_CODE_SESSION_ID || null,
+    promptChars: prompt.length,
+    category: result?.category ?? opts.category ?? null,
+    prefer: opts.prefer ?? (opts.free ? 'free' : null),
+    open: Boolean(opts.open),
+    decidedBy: result ? (result.reason.split(' · ').find((part) => part.startsWith('decided by')) ?? null) : null,
+    requested: result?.models?.[0] ?? opts.model ?? null,
+    model: result?.model ?? null,
+    fallbackFrom: result?.fallbackFrom ?? null,
+    outOfCredit: Boolean(result?.outOfCredit),
+    truncated: Boolean(result?.truncated),
+    promptTokens: result?.usage?.prompt_tokens ?? null,
+    completionTokens: result?.usage?.completion_tokens ?? null,
+    costUsd: typeof result?.usage?.cost === 'number' ? result.usage.cost : null,
+    generationId: result?.id ?? null,
+    ms,
+    error: error ? String(error.message ?? error).slice(0, 300) : null,
+  }
+}
+
+/** Appends a call to ~/.claude/jev-log/router.jsonl; a failed write costs only the record. */
+export function logCall(record, env = process.env) {
+  if (env.MODEL_ROUTER_LOG === '0') return
+  try {
+    const dir = join(env.HOME || homedir(), '.claude', 'jev-log')
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(join(dir, 'router.jsonl'), JSON.stringify(record) + '\n')
+  } catch {}
 }
 
 /** OpenRouter's live model catalog (public; no key needed). */
@@ -334,7 +376,15 @@ async function main(argv) {
     const decision = await plan(prompt, opts)
     return console.log(opts.json ? JSON.stringify(decision, null, 2) : `${decision.reason}\n→ ${decision.models.join(' → ')}`)
   }
-  const result = await complete(prompt, opts)
+  const startedAt = Date.now()
+  let result
+  try {
+    result = await complete(prompt, opts)
+  } catch (error) {
+    logCall(callRecord(prompt, opts, null, Date.now() - startedAt, error))
+    throw error
+  }
+  logCall(callRecord(prompt, opts, result, Date.now() - startedAt, null))
   if (opts.json) console.log(JSON.stringify(result, null, 2))
   else {
     console.log(`${result.text}\n\n[${result.model} · ${result.reason}]`)

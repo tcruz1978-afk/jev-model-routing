@@ -123,8 +123,10 @@ import {
   fallbackBody,
   fallbackEndpoint,
   readFallback,
+  appendRecord,
+  decisionLogPath,
 } from './policy.ts'
-import type { Candidate, PolicyConfig, Provider, Rerank, Skill, Wide } from './policy.ts'
+import type { Candidate, LogRecord, UnstampedRecord, PolicyConfig, Provider, Rerank, Skill, Wide } from './policy.ts'
 
 /** Prompt origins that are not a task of the person's: nothing to suggest for. */
 const NOT_A_TASK = new Set([
@@ -250,12 +252,57 @@ export const register: Register = (on, options) => {
   // The setup hint, once per session.
   let hintedSetup = false
 
+  // The decision log the usage dashboard reads: one JSONL line per prompt
+  // decided and per skill loaded, under ~/.claude/jev-log/. Never the
+  // prompt's text. Best effort: a write that fails only costs the record.
+  const record = async (
+    $: { fs: { read: (path: string) => Promise<unknown>; write: (path: string, text: string) => Promise<void>; exists: (path: string) => Promise<boolean> }; env: { get: (name: string) => Promise<string | undefined> }; session: { id: () => Promise<string> }; clock: { now: () => Promise<number> } },
+    entry: UnstampedRecord,
+  ) => {
+    if (!logDecisions) return
+    try {
+      const home = (await $.env.get('HOME')) ?? ''
+      const session = await $.session.id()
+      if (!home || !session) return
+      const path = decisionLogPath(home, session)
+      const existing = (await $.fs.exists(path)) ? String(await $.fs.read(path)) : null
+      const ts = new Date(await $.clock.now()).toISOString()
+      await $.fs.write(path, appendRecord(existing, { ...entry, ts, session } as LogRecord))
+    } catch {
+      // The dashboard misses one line; the prompt is never held up over it.
+    }
+  }
+
   // A skill whose frontmatter `name:` has spaces ("PocketBase API Rules") is
   // reported by `$.command.list()` under that name, but the engine lists,
   // runs and overrides it by its directory name (`pb-api-rules`). The map
   // from one to the other is read from disk once per session, in whichever
   // hook first needs it.
   let displayToId: Map<string, string> | null = null
+
+  // Where project skills can live. A cloud session with several repositories
+  // runs in their parent (/home/user) with each repo added beside it, so the
+  // working directory alone has no `.claude/skills`: every direct child with
+  // a `.claude/` folder counts as a project too. Read once per session.
+  let roots: string[] | null = null
+  const projectRoots = async ($: { session: { cwd: () => Promise<string>; root: () => Promise<string> }; fs: { exists: (path: string) => Promise<boolean>; list: (path?: string) => Promise<{ name: string; kind: string }[]> } }) => {
+    if (roots) return roots
+    const found: string[] = []
+    for (const base of [await $.session.cwd(), await $.session.root()]) {
+      if (!base || found.includes(base)) continue
+      found.push(base)
+      try {
+        for (const entry of await $.fs.list(base)) {
+          const child = `${base}/${entry.name}`
+          if (entry.kind === 'dir' && !entry.name.startsWith('.') && !found.includes(child) && (await $.fs.exists(`${child}/.claude`))) found.push(child)
+        }
+      } catch {
+        // An unreadable directory only narrows the search.
+      }
+    }
+    roots = found
+    return roots
+  }
 
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
     if (!resolved) {
@@ -352,9 +399,13 @@ export const register: Register = (on, options) => {
       try {
         const home = (await $.env.get('HOME')) ?? ''
         const relative = skillFileCandidates(skill.name, plugin)
-        // The engine reads the project's `.claude/` (the working directory
-        // only, not its ancestors) and the user's.
-        const candidates = [...relative, ...(home ? relative.map((file) => `${home}/${file}`) : [])]
+        // The project's `.claude/` (each project root, see `projectRoots`)
+        // and the user's.
+        const projects = await projectRoots($)
+        const candidates = [
+          ...projects.flatMap((root) => relative.map((file) => `${root}/${file}`)),
+          ...(home ? relative.map((file) => `${home}/${file}`) : []),
+        ]
         if (plugin && home) {
           const installed = `${home}/.claude/plugins/installed_plugins.json`
           if (await $.fs.exists(installed)) {
@@ -398,7 +449,7 @@ export const register: Register = (on, options) => {
       commands = await $.command.list()
       if (!displayToId && commands.some((command) => !commandLike(command.name))) {
         const found: { dir: string; markdown: string }[] = []
-        for (const root of [await $.session.cwd(), (await $.env.get('HOME')) ?? '']) {
+        for (const root of [...(await projectRoots($)), (await $.env.get('HOME')) ?? '']) {
           const dir = root && `${root}/.claude/skills`
           if (!dir || !(await $.fs.exists(dir))) continue
           for (const entry of await $.fs.list(dir)) {
@@ -474,15 +525,16 @@ export const register: Register = (on, options) => {
     }
     // What the decision model actually answered, whatever the policy then
     // does with it. This is the line that proves the ranking ran.
+    const wideMs = (await $.clock.now()) - startedAt
     if (logDecisions) {
-      const ms = (await $.clock.now()) - startedAt
-      $.ui.log(`[jev-skill-suggestion] ${decidedBy}: ${describeWide(wide, skills.length, ms)}`)
+      $.ui.log(`[jev-skill-suggestion] ${decidedBy}: ${describeWide(wide, skills.length, wideMs)}`)
     }
 
     // Request 2: re-read the shortlist with each skill's full text, and let
     // every candidate be rejected on its own.
     let rerank: Rerank | null = null
     let rerankAttempted = false
+    let rerankMs: number | null = null
     // Before the listing has been seen, `$.command.list()` may name a skill
     // the model is not allowed to invoke; its own frontmatter tells.
     const barred: string[] = []
@@ -501,8 +553,9 @@ export const register: Register = (on, options) => {
         rerankAttempted = true
         const answer = await ask(e.text, rerankQuestions(active, candidates), 'rerank')
         if (answer) rerank = readRerank(answer)
+        rerankMs = (await $.clock.now()) - rerankStartedAt
         if (logDecisions) {
-          const ms = (await $.clock.now()) - rerankStartedAt
+          const ms = rerankMs
           const read = candidates.filter((candidate) => files.get(candidate.name)).length
           $.ui.log(
             `[jev-skill-suggestion] jev: ${describeRerank(rerank, ms)} · ${read}/${candidates.length} bodies read`,
@@ -554,6 +607,22 @@ export const register: Register = (on, options) => {
     } else {
       block = suggestionBlock(pick, hideListing)
     }
+    await record($, {
+      kind: 'jev.decision',
+      decidedBy,
+      provider: decidedBy === 'jev' ? active : null,
+      model: decidedBy === 'jev' ? modelId || null : decidedBy.startsWith('backup ') ? decidedBy.slice(7) : null,
+      promptChars: e.text.length,
+      candidates: skills.length,
+      gate: wide?.gate ?? null,
+      top: (wide?.ranked ?? []).slice(0, 3),
+      rerank,
+      pick: pick?.name ?? null,
+      reason: decision.reason,
+      wideMs,
+      rerankMs,
+      injected: injectContent && pick !== null,
+    })
     if (!block) return next(e)
     // Attached on the way down: one block after the prompt as typed, read by
     // the model and never shown to the person.
@@ -565,6 +634,8 @@ export const register: Register = (on, options) => {
   // summarize the block away. Either way the next pick goes in whole again.
   on('session.end', async ($, e, next) => {
     injected.clear()
+    roots = null
+    files.clear()
     suggested = null
     return next(e)
   })
@@ -588,6 +659,7 @@ export const register: Register = (on, options) => {
               : 'nothing was suggested'
         $.ui.log(`[jev-skill-suggestion] skill /${e.skill} loaded (${how})`)
       }
+      await record($, { kind: 'jev.skill_load', skill: e.skill, suggested, asSuggested: suggested === e.skill })
       return next(e)
     }
     // The plugin's own setup command: its markdown is a placeholder, and the
@@ -602,7 +674,7 @@ export const register: Register = (on, options) => {
       commands = await $.command.list()
       if (!displayToId && commands.some((command) => !commandLike(command.name))) {
         const found: { dir: string; markdown: string }[] = []
-        for (const root of [await $.session.cwd(), (await $.env.get('HOME')) ?? '']) {
+        for (const root of [...(await projectRoots($)), (await $.env.get('HOME')) ?? '']) {
           const dir = root && `${root}/.claude/skills`
           if (!dir || !(await $.fs.exists(dir))) continue
           for (const entry of await $.fs.list(dir)) {

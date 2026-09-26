@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
 import {
+  appendRecord,
+  decisionLogPath,
   GATE_QUESTIONS,
   NONE,
   builtinWide,
@@ -405,7 +407,8 @@ test('the setup instructions list every skill, carry the exact edit and the back
   expect(text).toContain('Do not edit anything before a clear yes.')
   expect(text).toContain('"pptx": "user-invocable-only"')
   expect(text).toContain('"commit": "user-invocable-only"')
-  expect(text).toContain('"disableBundledSkills": true')
+  // Bundled skills stay on: the mod cannot inject them.
+  expect(text).toContain('"disableBundledSkills": false')
   // The backup keeps what was there, so restore can put it back.
   expect(text).toContain('"commit": "name-only"')
   expect(text).toContain('"disableBundledSkills": null')
@@ -507,4 +510,18 @@ test('proxy-injected key: requests carry no Authorization header of their own', 
   expect(headers.authorization).toBeUndefined()
   expect(headers['content-type']).toBe('application/json')
   expect(requestHeaders('typesafe', 'sk-or-x', 'jev-latest').authorization).toBe('Bearer sk-or-x')
+})
+
+test('decisionLogPath keeps a session id to safe file characters', () => {
+  expect(decisionLogPath('/home/a', 'abc-123')).toBe('/home/a/.claude/jev-log/abc-123.jsonl')
+  expect(decisionLogPath('/home/a', '../x/y')).toBe('/home/a/.claude/jev-log/.._x_y.jsonl')
+})
+
+test('appendRecord keeps earlier lines and drops a torn one', () => {
+  const load = { kind: 'jev.skill_load', ts: 't', session: 's', skill: 'a', suggested: null, asSuggested: false } as const
+  const first = appendRecord(null, load)
+  expect(first.endsWith('\n')).toBe(true)
+  const second = appendRecord(first + '{"torn":', { ...load, skill: 'b' })
+  const lines = second.trim().split('\n').map((line) => JSON.parse(line))
+  expect(lines.map((line) => line.skill)).toEqual(['a', 'b'])
 })
